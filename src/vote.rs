@@ -1,15 +1,16 @@
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Eq, PartialEq, Hash)]
 pub enum SpecialVotes {
     WITHHOLD,
     ABSTAIN
 }
 
+#[derive(Clone, Copy, Eq, PartialEq, Hash)]
 pub enum VoteValues {
-    Choice(u16),
+    Candidate(u16),
     SpecialVote(SpecialVotes)
 }
 
-#[derive(Debug)] // This is optional, used for debugging
+#[derive(Debug)]
 pub enum VoteErrors {
     InvalidCastToSpecialVote,
     ReadOutOfBounds,
@@ -19,7 +20,7 @@ pub enum VoteErrors {
 impl VoteValues {
     fn to_int(&self) -> i32 {
         match self {
-            VoteValues::Choice(choice) => { i32::from(*choice) }
+            VoteValues::Candidate(choice) => { i32::from(*choice) }
             VoteValues::SpecialVote(special_vote) => { special_vote.to_int() }
         }
     }
@@ -29,7 +30,7 @@ impl VoteValues {
 
         return match cast_result {
             Err(_) => { Err(VoteErrors::InvalidCastToSpecialVote) },
-            Ok(value) => { Ok(VoteValues::Choice(value)) }
+            Ok(value) => { Ok(VoteValues::Candidate(value)) }
         }
     }
 }
@@ -61,13 +62,13 @@ trait Vote {
 }
 
 impl VoteStruct {
-    fn len(&self) -> usize {
+    pub fn len(&self) -> usize {
         let mut length = self.rankings.len();
         if self.special_vote.is_some() { length += 1; }
         return length;
     }
 
-    fn get(&self, index: usize) -> Result<VoteValues, VoteErrors> {
+    pub fn get(&self, index: usize) -> Result<VoteValues, VoteErrors> {
         let rankings_length = self.rankings.len();
         let special_vote_option = self.special_vote.clone();
 
@@ -83,11 +84,11 @@ impl VoteStruct {
         let read_result = self.rankings.get(index);
         match read_result {
             None => { Err(VoteErrors::ReadOutOfBounds) }
-            Some(choice) => { Ok(VoteValues::Choice(*choice)) }
+            Some(choice) => { Ok(VoteValues::Candidate(*choice)) }
         }
     }
 
-    fn from_vector(raw_rankings: Vec<i32>) -> Result<VoteStruct, VoteErrors> {
+    pub fn from_vector(raw_rankings: Vec<i32>) -> Result<VoteStruct, VoteErrors> {
         let mut rankings: Vec<u16> = Vec::new();
         let mut special_vote: Option<SpecialVotes> = None;
         let length = raw_rankings.len();
@@ -118,7 +119,7 @@ impl VoteStruct {
         return Ok(VoteStruct { rankings, special_vote })
     }
 
-    fn to_vector(&self) -> Vec<i32> {
+    pub fn to_vector(&self) -> Vec<i32> {
         let mut all_rankings: Vec<i32> = Vec::new();
         for ranking in &self.rankings {
             all_rankings.push(i32::from(*ranking));
@@ -127,5 +128,42 @@ impl VoteStruct {
             all_rankings.push(special_vote.to_int())
         }
         return all_rankings;
+    }
+}
+
+pub struct VoteStructIterator<'a> {
+    rankings_iter: std::slice::Iter<'a, u16>,
+    special_vote: Option<&'a SpecialVotes>,
+}
+
+impl<'a> Iterator for VoteStructIterator<'a> {
+    type Item = VoteValues;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        // create iterator for normal rankings
+        let ranking = self.rankings_iter.next().map(
+            |&r| VoteValues::Candidate(r)
+        );
+        if ranking.is_some() {
+            return ranking;
+        }
+
+        // return special vote last
+        return match self.special_vote {
+            None => None,
+            Some(special_vote) => {
+                Option::from(VoteValues::SpecialVote(*special_vote))
+            }
+        }
+    }
+}
+
+impl VoteStruct {
+    // Method to create an iterator over the vote values
+    pub fn iter(&self) -> VoteStructIterator {
+        VoteStructIterator {
+            rankings_iter: self.rankings.iter(),
+            special_vote: self.special_vote.as_ref(),
+        }
     }
 }
