@@ -152,7 +152,7 @@ impl<'a> Iterator for VoteStructIterator<'a> {
         return match self.special_vote {
             None => None,
             Some(special_vote) => {
-                Option::from(VoteValues::SpecialVote(*special_vote))
+                Some(VoteValues::SpecialVote(*special_vote))
             }
         }
     }
