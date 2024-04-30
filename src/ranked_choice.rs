@@ -17,7 +17,7 @@ type CandidateRanking = (u64, VoteValues);
 type CandidateTransition = (CandidateRanking, CandidateRanking);
 
 struct RankedChoiceVoteGraph {
-    graph: UnGraph<CandidateRanking, u64>,
+    graph: DiGraph<CandidateRanking, u64>,
     node_index_map: HashMap<CandidateRanking, NodeIndex>,
     edge_index_map: HashMap<CandidateTransition, EdgeIndex>
 }
@@ -70,15 +70,11 @@ impl RankedChoiceVoteGraph {
             let prev_node: CandidateRanking = (ranking, prev_choice);
             let next_node: CandidateRanking = (ranking+1, next_choice);
             let transition: CandidateTransition = (prev_node, next_node);
+            let edge_index = self.get_edge_idx(transition);
 
-            let prev_node_idx = self.get_node_idx(prev_node);
-            let next_node_idx = self.get_node_idx(next_node);
-            let edge_weight = self.get_edge_weight(transition);
-
-            self.graph.update_edge(
-                prev_node_idx, next_node_idx, edge_weight+1
-            );
-            ranking += 1;
+            let edge_weight_result = self.graph.edge_weight_mut(edge_index);
+            let mut edge_weight = edge_weight_result.unwrap();
+            *edge_weight += 1;
         };
 
         let _ = vote.iter().tuple_windows().inspect(callback);
