@@ -1,17 +1,9 @@
 use std::cmp::{max, min};
 use std::collections::{HashMap};
-use petgraph::visit::Walker;
-use std::borrow::BorrowMut;
-
 
 use crate::vote;
 use vote::VoteValues;
 use crate::vote::{SpecialVotes, VoteStruct};
-
-/*
-edges from (level, choice) to (next_level, next_choice)
-edge weight is number of votes with edge transition
-*/
 
 #[derive(Default)]
 struct TrieNode {
@@ -27,7 +19,9 @@ impl TrieNode {
         }
     }
 
-    fn search_or_create_child(&mut self, vote_value: VoteValues) -> &mut TrieNode {
+    fn search_or_create_child(
+        &mut self, vote_value: VoteValues
+    ) -> &mut TrieNode {
         self.children.entry(vote_value).or_insert(TrieNode::new())
     }
 
@@ -42,7 +36,8 @@ impl TrieNode {
 
 struct RankedChoiceVoteTrie {
     root: TrieNode,
-    dowdall_score_map: HashMap<u16, f32>
+    dowdall_score_map: HashMap<u16, f32>,
+    elimination_strategy: EliminationStrategies
 }
 
 struct VoteTransferChanges<'a> {
@@ -51,15 +46,20 @@ struct VoteTransferChanges<'a> {
     vote_transfers: Vec<(u16, &'a TrieNode, u64)>
 }
 
+pub enum EliminationStrategies {
+    EliminateAll, DowdallScoring
+}
+
 impl RankedChoiceVoteTrie {
-    fn new() -> Self {
+    pub fn new() -> Self {
         RankedChoiceVoteTrie {
             root: TrieNode::new(),
-            dowdall_score_map: Default::default()
+            dowdall_score_map: Default::default(),
+            elimination_strategy: EliminationStrategies::EliminateAll,
         }
     }
 
-    fn insert_vote<'a>(&mut self, vote: VoteStruct) {
+    pub fn insert_vote<'a>(&mut self, vote: VoteStruct) {
         let mut current = &mut self.root;
         let vote_items = vote.iter().enumerate();
 
@@ -70,6 +70,7 @@ impl RankedChoiceVoteTrie {
                     let score = *self.dowdall_score_map
                         .entry(candidate).or_insert(0f32);
                     let new_score = score + 1.0 / (ranking + 1) as f32;
+                    assert!(new_score.is_finite());
                     self.dowdall_score_map.insert(candidate, new_score);
                 }
             }
@@ -128,7 +129,36 @@ impl RankedChoiceVoteTrie {
         frontier_nodes.entry(*candidate).or_insert(Vec::new())
     }
 
-    fn determine_winner<'a>(&self) -> Option<u16> {
+    fn find_dowdall_weakest(&self, candidates: Vec<u16>) -> Vec<u16> {
+        let mut min_score = f32::MAX;
+        let mut weakest_candidates: Vec<u16> = Vec::new();
+
+        for candidate in &candidates {
+            let score_get_result = self.dowdall_score_map.get(candidate);
+            match score_get_result {
+                None => { continue; },
+                Some(score) => {
+                    min_score = f32::min(*score, min_score);
+                }
+            }
+        }
+
+        for candidate in &candidates {
+            let score_get_result = self.dowdall_score_map.get(candidate);
+            match score_get_result {
+                None => { continue; },
+                Some(score) => {
+                    if f32::eq(score, &min_score) {
+                        weakest_candidates.push(*candidate);
+                    }
+                }
+            }
+        }
+
+        return weakest_candidates;
+    }
+
+    pub fn determine_winner<'a>(&self) -> Option<u16> {
         let mut candidate_vote_counts: HashMap<u16, u64> = HashMap::new();
         let mut frontier_nodes: HashMap<u16, Vec<&TrieNode>> = HashMap::new();
         let mut effective_total_votes: u64 = 0;
@@ -172,6 +202,15 @@ impl RankedChoiceVoteTrie {
                 }
             }
 
+            // further filter down candidates to eliminate using
+            // specified elimination strategy
+            match &self.elimination_strategy {
+                EliminationStrategies::EliminateAll => {},
+                EliminationStrategies::DowdallScoring => {
+                    weakest_candidates = self.find_dowdall_weakest(weakest_candidates);
+                }
+            }
+
             // find all candidates, nodes, and vote counts to transfer to
             let mut all_vote_transfers: Vec<VoteTransferChanges> = Vec::new();
             for weakest_candidate in weakest_candidates {
@@ -191,7 +230,7 @@ impl RankedChoiceVoteTrie {
                 frontier_nodes.remove(&weakest_candidate);
             }
 
-            // conduct vote transfers to next candidates and nodes
+            // conduct vote transfers to next candidates and trie nodes
             for vote_transfer in all_vote_transfers {
                 total_candidate_votes -=
                     vote_transfer.abstain_votes + vote_transfer.withhold_votes;
