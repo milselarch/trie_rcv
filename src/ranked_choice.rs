@@ -45,6 +45,12 @@ struct RankedChoiceVoteTrie {
     dowdall_score_map: HashMap<u16, f32>
 }
 
+struct VoteTransferChanges<'a> {
+    withhold_votes: u64, abstain_votes: u64,
+    // (next candidate, next node, num votes to transfer to next candidate)
+    vote_transfers: Vec<(u16, &'a TrieNode, u64)>
+}
+
 impl RankedChoiceVoteTrie {
     fn new() -> Self {
         RankedChoiceVoteTrie {
@@ -85,79 +91,80 @@ impl RankedChoiceVoteTrie {
         return Some(current);
     }
 
-    fn transfer_next_votes<'a, 'b>(
-        &self, node: &'a TrieNode,
-        frontier_nodes: &'b mut HashMap<u16, Vec<&'a TrieNode>>,
-        effective_total_votes: &mut u64, total_candidate_votes: &mut u64,
-        candidate_vote_counts: &mut HashMap<u16, u64>
-    ) {
+    fn transfer_next_votes<'a>(&'a self, node: &'a TrieNode) -> VoteTransferChanges {
         let child_nodes = &node.children;
+        let mut transfer_changes = VoteTransferChanges {
+            withhold_votes: 0, abstain_votes: 0,
+            vote_transfers: Default::default(),
+        };
 
         for (next_vote_value, next_node) in child_nodes {
             match next_vote_value {
                 VoteValues::SpecialVote(special_vote) => {
-                    *effective_total_votes -= 1;
-
                     match special_vote {
-                        SpecialVotes::WITHHOLD => {},
+                        SpecialVotes::WITHHOLD => {
+                            transfer_changes.withhold_votes += 1;
+                        },
                         SpecialVotes::ABSTAIN => {
-                            *total_candidate_votes -= 1;
+                            transfer_changes.abstain_votes += 1;
                         }
                     }
                 },
                 VoteValues::Candidate(next_candidate) => {
-                    let next_candidate_nodes = self.get_or_create_nodes(
-                        next_candidate, frontier_nodes
-                    );
-                    let next_candidate_vote_count =
-                        candidate_vote_counts.entry(*next_candidate)
-                        .or_insert(0);
-
-                    next_candidate_nodes.push(&next_node);
-                    *next_candidate_vote_count += next_node.num_votes;
+                    transfer_changes.vote_transfers.push((
+                        *next_candidate, next_node, next_node.num_votes
+                    ));
                 }
             }
         }
+
+        return transfer_changes;
     }
 
     fn get_or_create_nodes<'a>(
         &'a self, candidate: &u16,
         frontier_nodes: &'a mut HashMap<u16, Vec<&'a TrieNode>>
-    ) -> &'a mut Vec<&'a TrieNode> {
+    ) -> &mut Vec<&TrieNode> {
         frontier_nodes.entry(*candidate).or_insert(Vec::new())
     }
 
     fn determine_winner<'a>(&self) -> Option<u16> {
         let mut candidate_vote_counts: HashMap<u16, u64> = HashMap::new();
-        let mut frontier_nodes: HashMap<u16, Vec<&'a TrieNode>> = HashMap::new();
+        let mut frontier_nodes: HashMap<u16, Vec<&TrieNode>> = HashMap::new();
         let mut effective_total_votes: u64 = 0;
         let mut total_candidate_votes: u64 = 0;
 
-        for (vote_value, node) in self.root.children {
+        let kv_pairs_vec: Vec<(&VoteValues, &TrieNode)> =
+            self.root.children.iter().collect();
+        for (vote_value, node) in kv_pairs_vec {
             let candidate = match vote_value {
                 VoteValues::SpecialVote(_) => { continue; }
                 VoteValues::Candidate(candidate) => { candidate }
             };
 
-            candidate_vote_counts.insert(candidate, node.num_votes);
-            frontier_nodes.insert(candidate, vec![&node]);
+            candidate_vote_counts.insert(*candidate, node.num_votes);
+            frontier_nodes.insert(*candidate, vec![&node]);
             total_candidate_votes += node.num_votes;
             effective_total_votes += node.num_votes;
         }
 
         while candidate_vote_counts.len() > 0 {
             let mut min_candidate_votes: u64 = u64::MAX;
+            // impossible for any candidate to win as sum of
+            // candidate votes is under the total number of votes casted
             if total_candidate_votes <= effective_total_votes / 2 {
                 return None;
             }
 
             for (candidate, num_votes) in &candidate_vote_counts {
                 min_candidate_votes = min(min_candidate_votes, *num_votes);
+                // some candidate has won a majority of the votes
                 if *num_votes > effective_total_votes / 2 {
                     return Some(*candidate)
                 }
             }
 
+            // find candidates with the lowest number of effective votes
             let mut weakest_candidates: Vec<u16> = Vec::new();
             for (candidate, num_votes) in &candidate_vote_counts {
                 if *num_votes == min_candidate_votes {
@@ -165,6 +172,8 @@ impl RankedChoiceVoteTrie {
                 }
             }
 
+            // find all candidates, nodes, and vote counts to transfer to
+            let mut all_vote_transfers: Vec<VoteTransferChanges> = Vec::new();
             for weakest_candidate in weakest_candidates {
                 let optional_weak_candidate_nodes =
                     frontier_nodes.get(&weakest_candidate);
@@ -174,14 +183,33 @@ impl RankedChoiceVoteTrie {
                 };
 
                 for &node in candidate_nodes {
-                    self.transfer_next_votes(
-                        &node, &mut frontier_nodes, &mut effective_total_votes,
-                        &mut total_candidate_votes, &mut candidate_vote_counts
-                    );
+                    let transfer_result = self.transfer_next_votes(&node);
+                    all_vote_transfers.push(transfer_result);
                 }
 
                 candidate_vote_counts.remove(&weakest_candidate);
                 frontier_nodes.remove(&weakest_candidate);
+            }
+
+            // conduct vote transfers to next candidates and nodes
+            for vote_transfer in all_vote_transfers {
+                total_candidate_votes -=
+                    vote_transfer.abstain_votes + vote_transfer.withhold_votes;
+                effective_total_votes -= vote_transfer.abstain_votes;
+
+                for vote_transfer in vote_transfer.vote_transfers {
+                    let next_candidate = vote_transfer.0;
+                    let next_node = vote_transfer.1;
+                    let vote_allocation = vote_transfer.2;
+
+                    let next_candidate_votes = candidate_vote_counts
+                        .entry(next_candidate).or_insert(0);
+                    let next_candidate_nodes = frontier_nodes
+                        .entry(next_candidate).or_insert(Vec::new());
+
+                    *next_candidate_votes += vote_allocation;
+                    next_candidate_nodes.push(next_node);
+                }
             }
         }
 
