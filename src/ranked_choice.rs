@@ -1,7 +1,8 @@
 use std::cmp::{max, min};
-use std::collections::{HashMap, HashSet};
-use petgraph::prelude::*;
-use itertools::Itertools;
+use std::collections::{HashMap};
+use petgraph::visit::Walker;
+use std::borrow::BorrowMut;
+
 
 use crate::vote;
 use vote::VoteValues;
@@ -27,13 +28,7 @@ impl TrieNode {
     }
 
     fn search_or_create_child(&mut self, vote_value: VoteValues) -> &mut TrieNode {
-        return if let Some(node_ref) = self.children.get_mut(&vote_value) {
-            node_ref
-        } else {
-            let node = TrieNode::new();
-            let node_ref = self.children.entry(vote_value).or_insert(node);
-            node_ref
-        }
+        self.children.entry(vote_value).or_insert(TrieNode::new())
     }
 
     fn search_child(&self, vote_value: VoteValues) -> Option<&TrieNode> {
@@ -58,22 +53,24 @@ impl RankedChoiceVoteTrie {
         }
     }
 
-    fn insert_vote(&mut self, vote: VoteStruct) {
+    fn insert_vote<'a>(&mut self, vote: VoteStruct) {
         let mut current = &mut self.root;
+        let vote_items = vote.iter().enumerate();
 
-        let _ = vote.iter().enumerate().inspect(|(ranking, vote_value)| {
+        for (ranking, vote_value) in vote_items {
             match vote_value {
-                Some(VoteValues::Candidate(candidate)) => {
-                    let score_option = self.dowdall_score_map.get(candidate);
-                    let score = score_option.unwrap_or(&0f32);
-                    let new_score = score + 1.0 / f32::from(*ranking + 1);
-                    self.dowdall_score_map.insert(*candidate, new_score);
+                VoteValues::SpecialVote(_) => {}
+                VoteValues::Candidate(candidate) => {
+                    let score = *self.dowdall_score_map
+                        .entry(candidate).or_insert(0f32);
+                    let new_score = score + 1.0 / (ranking + 1) as f32;
+                    self.dowdall_score_map.insert(candidate, new_score);
                 }
             }
-            let child = current.search_or_create_child(*vote_value);
+            let child = current.search_or_create_child(vote_value);
             child.num_votes += 1;
             current = child;
-        });
+        };
     }
 
     fn search_node(&mut self, votes: Vec<VoteValues>) -> Option<&mut TrieNode> {
@@ -88,15 +85,15 @@ impl RankedChoiceVoteTrie {
         return Some(current);
     }
 
-    fn transfer_next_votes(
-        &self, node: TrieNode, frontier_nodes: &mut HashMap<u16, Vec<&TrieNode>>,
+    fn transfer_next_votes<'a, 'b>(
+        &self, node: &'a TrieNode,
+        frontier_nodes: &'b mut HashMap<u16, Vec<&'a TrieNode>>,
         effective_total_votes: &mut u64, total_candidate_votes: &mut u64,
         candidate_vote_counts: &mut HashMap<u16, u64>
     ) {
         let child_nodes = &node.children;
 
         for (next_vote_value, next_node) in child_nodes {
-            // TODO: create key value pair if it doesnt exist
             match next_vote_value {
                 VoteValues::SpecialVote(special_vote) => {
                     *effective_total_votes -= 1;
@@ -109,51 +106,54 @@ impl RankedChoiceVoteTrie {
                     }
                 },
                 VoteValues::Candidate(next_candidate) => {
-                    let mut next_candidate_nodes =
-                        frontier_nodes.get(&next_candidate).unwrap();
-                    next_candidate_nodes.push(&next_node);
-
-                    let mut next_candidate_vote_count =
-                        candidate_vote_counts.get(&next_candidate)
-                        .unwrap_or(&0);
-
-                    next_candidate_vote_count += *next_node.num_votes;
-                    candidate_vote_counts.insert(
-                        *next_candidate, *next_candidate_vote_count
+                    let next_candidate_nodes = self.get_or_create_nodes(
+                        next_candidate, frontier_nodes
                     );
+                    let next_candidate_vote_count =
+                        candidate_vote_counts.entry(*next_candidate)
+                        .or_insert(0);
+
+                    next_candidate_nodes.push(&next_node);
+                    *next_candidate_vote_count += next_node.num_votes;
                 }
             }
         }
     }
 
-    fn determine_winner(&self) -> Option<u16> {
+    fn get_or_create_nodes<'a>(
+        &'a self, candidate: &u16,
+        frontier_nodes: &'a mut HashMap<u16, Vec<&'a TrieNode>>
+    ) -> &'a mut Vec<&'a TrieNode> {
+        frontier_nodes.entry(*candidate).or_insert(Vec::new())
+    }
+
+    fn determine_winner<'a>(&self) -> Option<u16> {
         let mut candidate_vote_counts: HashMap<u16, u64> = HashMap::new();
-        let mut frontier_nodes: HashMap<u16, Vec<&TrieNode>> = HashMap::new();
+        let mut frontier_nodes: HashMap<u16, Vec<&'a TrieNode>> = HashMap::new();
         let mut effective_total_votes: u64 = 0;
         let mut total_candidate_votes: u64 = 0;
 
         for (vote_value, node) in self.root.children {
-            match vote_value {
+            let candidate = match vote_value {
                 VoteValues::SpecialVote(_) => { continue; }
-                VoteValues::Candidate(candidate) => {
-                    candidate_vote_counts.insert(candidate, node.num_votes);
-                    frontier_nodes.insert(candidate, vec![&node]);
-                    total_candidate_votes += node.num_votes;
-                }
-            }
+                VoteValues::Candidate(candidate) => { candidate }
+            };
 
+            candidate_vote_counts.insert(candidate, node.num_votes);
+            frontier_nodes.insert(candidate, vec![&node]);
+            total_candidate_votes += node.num_votes;
             effective_total_votes += node.num_votes;
         }
 
         while candidate_vote_counts.len() > 0 {
             let mut min_candidate_votes: u64 = u64::MAX;
-            if (total_candidate_votes <= effective_total_votes / 2) {
+            if total_candidate_votes <= effective_total_votes / 2 {
                 return None;
             }
 
             for (candidate, num_votes) in &candidate_vote_counts {
                 min_candidate_votes = min(min_candidate_votes, *num_votes);
-                if (num_votes > *effective_total_votes / 2) {
+                if *num_votes > effective_total_votes / 2 {
                     return Some(*candidate)
                 }
             }
@@ -166,16 +166,22 @@ impl RankedChoiceVoteTrie {
             }
 
             for weakest_candidate in weakest_candidates {
-                let candidate_nodes =
-                    frontier_nodes.get(&weakest_candidate).unwrap();
+                let optional_weak_candidate_nodes =
+                    frontier_nodes.get(&weakest_candidate);
+                let candidate_nodes = match optional_weak_candidate_nodes {
+                    None => { continue; }
+                    Some(candidate_nodes) => { candidate_nodes }
+                };
 
-                for &&node in candidate_nodes {
+                for &node in candidate_nodes {
                     self.transfer_next_votes(
-                        node, &mut frontier_nodes, &mut effective_total_votes,
+                        &node, &mut frontier_nodes, &mut effective_total_votes,
                         &mut total_candidate_votes, &mut candidate_vote_counts
                     );
                 }
+
                 candidate_vote_counts.remove(&weakest_candidate);
+                frontier_nodes.remove(&weakest_candidate);
             }
         }
 
