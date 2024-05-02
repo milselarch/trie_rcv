@@ -1,2 +1,2 @@
-# graph_rcv
-Ranked Choice Voting using Graphs in Rust
+# trie_rcv
+Ranked Choice Voting implementation using Tries in Rust
