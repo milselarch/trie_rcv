@@ -88,6 +88,24 @@ impl VoteStruct {
         }
     }
 
+    pub fn from_vectors(
+        raw_votes: Vec<Vec<i32>>
+    ) -> Result<Vec<VoteStruct>, VoteErrors> {
+        let mut votes: Vec<VoteStruct> = Vec::new();
+
+        for raw_vote in raw_votes {
+            let result = VoteStruct::from_vector(raw_vote);
+            match result {
+                Err(err) => return Err(err),
+                Ok(vote_struct) => {
+                    votes.push(vote_struct)
+                }
+            }
+        }
+
+        return Ok(votes);
+    }
+
     pub fn from_vector(raw_rankings: Vec<i32>) -> Result<VoteStruct, VoteErrors> {
         let mut rankings: Vec<u16> = Vec::new();
         let mut special_vote: Option<SpecialVotes> = None;

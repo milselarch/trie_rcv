@@ -1,7 +1,8 @@
-use std::cmp::{max, min};
-use std::collections::{HashMap};
+use std::cmp::min;
+use std::collections::HashMap;
+pub use vote::*;
 
-use crate::vote;
+pub mod vote;
 use vote::VoteValues;
 use crate::vote::{SpecialVotes, VoteStruct};
 
@@ -34,7 +35,7 @@ impl TrieNode {
     }
 }
 
-struct RankedChoiceVoteTrie {
+pub struct RankedChoiceVoteTrie {
     root: TrieNode,
     dowdall_score_map: HashMap<u16, f32>,
     elimination_strategy: EliminationStrategies
@@ -46,6 +47,7 @@ struct VoteTransferChanges<'a> {
     vote_transfers: Vec<(u16, &'a TrieNode, u64)>
 }
 
+#[derive(Clone)]
 pub enum EliminationStrategies {
     EliminateAll, DowdallScoring
 }
@@ -56,6 +58,12 @@ impl RankedChoiceVoteTrie {
             root: TrieNode::new(),
             dowdall_score_map: Default::default(),
             elimination_strategy: EliminationStrategies::EliminateAll,
+        }
+    }
+
+    pub fn insert_votes(&mut self, votes: Vec<VoteStruct>) {
+        for vote in votes {
+            self.insert_vote(vote);
         }
     }
 
@@ -152,6 +160,16 @@ impl RankedChoiceVoteTrie {
         }
 
         return weakest_candidates;
+    }
+
+    pub fn run_election(&self, votes: Vec<VoteStruct>) -> Option<u16> {
+        let mut rcv = RankedChoiceVoteTrie {
+            root: Default::default(),
+            dowdall_score_map: Default::default(),
+            elimination_strategy: self.elimination_strategy.clone()
+        };
+        rcv.insert_votes(votes);
+        return rcv.determine_winner();
     }
 
     pub fn determine_winner<'a>(&self) -> Option<u16> {
