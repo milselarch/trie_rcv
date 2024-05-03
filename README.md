@@ -56,3 +56,6 @@ fn main() {
     ]);
 }
 ```
+
+## Build instructions  
+Build crate using `cargo build`, run integration tests with `cargo test`

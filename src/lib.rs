@@ -3,8 +3,6 @@ use std::collections::HashMap;
 pub use vote::*;
 
 pub mod vote;
-use vote::VoteValues;
-use crate::vote::{SpecialVotes, VoteStruct};
 
 #[derive(Default)]
 struct TrieNode {
@@ -41,10 +39,16 @@ pub struct RankedChoiceVoteTrie {
     elimination_strategy: EliminationStrategies
 }
 
+struct VoteTransfer<'a> {
+    next_candidate: u16,
+    next_node: Box<&'a TrieNode>,
+    num_votes: u64
+}
+
 struct VoteTransferChanges<'a> {
     withhold_votes: u64, abstain_votes: u64,
     // (next candidate, next node, num votes to transfer to next candidate)
-    vote_transfers: Vec<(u16, &'a TrieNode, u64)>
+    vote_transfers: Vec<VoteTransfer<'a>>
 }
 
 #[derive(Clone)]
@@ -121,9 +125,11 @@ impl RankedChoiceVoteTrie {
                     }
                 },
                 VoteValues::Candidate(next_candidate) => {
-                    transfer_changes.vote_transfers.push((
-                        *next_candidate, next_node, next_node.num_votes
-                    ));
+                    transfer_changes.vote_transfers.push(VoteTransfer{
+                        next_candidate: *next_candidate,
+                        next_node: Box::new(next_node),
+                        num_votes: next_node.num_votes
+                    });
                 }
             }
         }
@@ -176,7 +182,10 @@ impl RankedChoiceVoteTrie {
     pub fn determine_winner<'a>(&self) -> Option<u16> {
         // println!("RUN_ELECTION_START");
         let mut candidate_vote_counts: HashMap<u16, u64> = HashMap::new();
-        let mut frontier_nodes: HashMap<u16, Vec<&TrieNode>> = HashMap::new();
+        // trie frontier nodes are stored in boxes so that they will be
+        // allocated on the heap, otherwise they might cause a stackoverflow
+        let mut frontier_nodes:
+            HashMap<u16, Vec<Box<&TrieNode>>> = HashMap::new();
         // total number of voters (who have no abstained from vote)
         let mut effective_total_votes: u64 = 0;
         // total number of votes that go to candidates
@@ -192,7 +201,7 @@ impl RankedChoiceVoteTrie {
                 }
                 VoteValues::Candidate(candidate) => {
                     candidate_vote_counts.insert(*candidate, node.num_votes);
-                    frontier_nodes.insert(*candidate, vec![&node]);
+                    frontier_nodes.insert(*candidate, vec![Box::new(node)]);
                     total_candidate_votes += node.num_votes;
                     effective_total_votes += node.num_votes;
                 }
@@ -234,14 +243,19 @@ impl RankedChoiceVoteTrie {
             }
 
             // find all candidates, nodes, and vote counts to transfer to
-            let mut all_vote_transfers: Vec<VoteTransferChanges> = Vec::new();
+            let mut all_vote_transfers: Vec<VoteTransfer> = Vec::new();
+            let mut new_withhold_votes: u64 = 0;
+            let mut new_abstain_votes: u64 = 0;
+
             for weakest_candidate in weakest_candidates {
                 let candidate_nodes = frontier_nodes.get(&weakest_candidate)
                     .expect("all uneliminated candidates must have node(s)");
 
-                for &node in candidate_nodes {
-                    let transfer_result = self.transfer_next_votes(node);
-                    all_vote_transfers.push(transfer_result);
+                for box_node in candidate_nodes {
+                    let transfer_result = self.transfer_next_votes(box_node);
+                    new_abstain_votes += transfer_result.abstain_votes;
+                    new_withhold_votes += transfer_result.withhold_votes;
+                    all_vote_transfers.extend(transfer_result.vote_transfers);
                 }
 
                 candidate_vote_counts.remove(&weakest_candidate);
@@ -250,27 +264,22 @@ impl RankedChoiceVoteTrie {
 
             // 0 vote transfers will be done, election is unable to progress
             if all_vote_transfers.len() == 0 { return None; }
+            total_candidate_votes -= new_abstain_votes + new_withhold_votes;
+            effective_total_votes -= new_abstain_votes;
 
             // conduct vote transfers to next candidates and trie nodes
             for vote_transfer in all_vote_transfers {
-                total_candidate_votes -=
-                    vote_transfer.abstain_votes + vote_transfer.withhold_votes;
-                effective_total_votes -= vote_transfer.abstain_votes;
+                let next_candidate = vote_transfer.next_candidate;
+                let vote_allocation = vote_transfer.num_votes;
+                assert!(vote_allocation > 0);
 
-                for vote_transfer in vote_transfer.vote_transfers {
-                    let next_candidate = vote_transfer.0;
-                    let next_node = vote_transfer.1;
-                    let vote_allocation = vote_transfer.2;
-                    assert!(vote_allocation > 0);
+                let next_candidate_votes = candidate_vote_counts
+                    .entry(next_candidate).or_insert(0);
+                let next_candidate_nodes = frontier_nodes
+                    .entry(next_candidate).or_insert(Vec::new());
 
-                    let next_candidate_votes = candidate_vote_counts
-                        .entry(next_candidate).or_insert(0);
-                    let next_candidate_nodes = frontier_nodes
-                        .entry(next_candidate).or_insert(Vec::new());
-
-                    *next_candidate_votes += vote_allocation;
-                    next_candidate_nodes.push(next_node);
-                }
+                *next_candidate_votes += vote_allocation;
+                next_candidate_nodes.push(vote_transfer.next_node);
             }
         }
 
