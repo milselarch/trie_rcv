@@ -130,28 +130,24 @@ impl RankedChoiceVoteTrie {
     }
 
     fn find_dowdall_weakest(&self, candidates: Vec<u16>) -> Vec<u16> {
+        /*
+        returns the subset of candidates from the input candidates vector
+        that score the lowest according the dowdall scoring criteria
+        */
         let mut min_score = f32::MAX;
         let mut weakest_candidates: Vec<u16> = Vec::new();
 
         for candidate in &candidates {
-            let score_get_result = self.dowdall_score_map.get(candidate);
-            match score_get_result {
-                None => { continue; },
-                Some(score) => {
-                    min_score = f32::min(*score, min_score);
-                }
-            }
+            let score = self.dowdall_score_map.get(candidate)
+                .expect("score map should have scores for all candidates");
+            min_score = f32::min(*score, min_score);
         }
 
         for candidate in &candidates {
-            let score_get_result = self.dowdall_score_map.get(candidate);
-            match score_get_result {
-                None => { continue; },
-                Some(score) => {
-                    if f32::eq(score, &min_score) {
-                        weakest_candidates.push(*candidate);
-                    }
-                }
+            let score = self.dowdall_score_map.get(candidate)
+                .expect("score map should have scores for all candidates");
+            if f32::eq(score, &min_score) {
+                weakest_candidates.push(*candidate);
             }
         }
 
@@ -161,21 +157,26 @@ impl RankedChoiceVoteTrie {
     pub fn determine_winner<'a>(&self) -> Option<u16> {
         let mut candidate_vote_counts: HashMap<u16, u64> = HashMap::new();
         let mut frontier_nodes: HashMap<u16, Vec<&TrieNode>> = HashMap::new();
+        // total number of voters (who have no abstained from vote)
         let mut effective_total_votes: u64 = 0;
+        // total number of votes that go to candidates
         let mut total_candidate_votes: u64 = 0;
 
         let kv_pairs_vec: Vec<(&VoteValues, &TrieNode)> =
             self.root.children.iter().collect();
         for (vote_value, node) in kv_pairs_vec {
-            let candidate = match vote_value {
-                VoteValues::SpecialVote(_) => { continue; }
-                VoteValues::Candidate(candidate) => { candidate }
+            match vote_value {
+                VoteValues::SpecialVote(SpecialVotes::ABSTAIN) => {}
+                VoteValues::SpecialVote(SpecialVotes::WITHHOLD) => {
+                    effective_total_votes += node.num_votes;
+                }
+                VoteValues::Candidate(candidate) => {
+                    candidate_vote_counts.insert(*candidate, node.num_votes);
+                    frontier_nodes.insert(*candidate, vec![&node]);
+                    total_candidate_votes += node.num_votes;
+                    effective_total_votes += node.num_votes;
+                }
             };
-
-            candidate_vote_counts.insert(*candidate, node.num_votes);
-            frontier_nodes.insert(*candidate, vec![&node]);
-            total_candidate_votes += node.num_votes;
-            effective_total_votes += node.num_votes;
         }
 
         while candidate_vote_counts.len() > 0 {
@@ -204,7 +205,7 @@ impl RankedChoiceVoteTrie {
 
             // further filter down candidates to eliminate using
             // specified elimination strategy
-            match &self.elimination_strategy {
+            match self.elimination_strategy {
                 EliminationStrategies::EliminateAll => {},
                 EliminationStrategies::DowdallScoring => {
                     weakest_candidates = self.find_dowdall_weakest(weakest_candidates);
@@ -214,15 +215,11 @@ impl RankedChoiceVoteTrie {
             // find all candidates, nodes, and vote counts to transfer to
             let mut all_vote_transfers: Vec<VoteTransferChanges> = Vec::new();
             for weakest_candidate in weakest_candidates {
-                let optional_weak_candidate_nodes =
-                    frontier_nodes.get(&weakest_candidate);
-                let candidate_nodes = match optional_weak_candidate_nodes {
-                    None => { continue; }
-                    Some(candidate_nodes) => { candidate_nodes }
-                };
+                let candidate_nodes = frontier_nodes.get(&weakest_candidate)
+                    .expect("all uneliminated candidates must have node(s)");
 
                 for &node in candidate_nodes {
-                    let transfer_result = self.transfer_next_votes(&node);
+                    let transfer_result = self.transfer_next_votes(node);
                     all_vote_transfers.push(transfer_result);
                 }
 
@@ -240,6 +237,7 @@ impl RankedChoiceVoteTrie {
                     let next_candidate = vote_transfer.0;
                     let next_node = vote_transfer.1;
                     let vote_allocation = vote_transfer.2;
+                    assert!(vote_allocation > 0);
 
                     let next_candidate_votes = candidate_vote_counts
                         .entry(next_candidate).or_insert(0);
