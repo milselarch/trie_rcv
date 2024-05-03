@@ -3,7 +3,7 @@ name = "trie_rcv"
 version = "1.0.0"
 edition = "2021"
 description = "Ranked Choice Voting implementation using Tries in Rust"
-license = "Apache License, Version 2.0"
+license = "Apache-2.0"
 repository = "https://github.com/milselarch/trie_rcv"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
