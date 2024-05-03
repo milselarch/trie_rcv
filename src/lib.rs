@@ -57,7 +57,7 @@ impl RankedChoiceVoteTrie {
         RankedChoiceVoteTrie {
             root: TrieNode::new(),
             dowdall_score_map: Default::default(),
-            elimination_strategy: EliminationStrategies::EliminateAll,
+            elimination_strategy: EliminationStrategies::DowdallScoring,
         }
     }
 
@@ -72,6 +72,7 @@ impl RankedChoiceVoteTrie {
         let vote_items = vote.iter().enumerate();
 
         for (ranking, vote_value) in vote_items {
+            // println!("ITEM {}", ranking);
             match vote_value {
                 VoteValues::SpecialVote(_) => {}
                 VoteValues::Candidate(candidate) => {
@@ -173,6 +174,7 @@ impl RankedChoiceVoteTrie {
     }
 
     pub fn determine_winner<'a>(&self) -> Option<u16> {
+        // println!("RUN_ELECTION_START");
         let mut candidate_vote_counts: HashMap<u16, u64> = HashMap::new();
         let mut frontier_nodes: HashMap<u16, Vec<&TrieNode>> = HashMap::new();
         // total number of voters (who have no abstained from vote)
@@ -198,6 +200,7 @@ impl RankedChoiceVoteTrie {
         }
 
         while candidate_vote_counts.len() > 0 {
+            // println!("COUNTS {:?}", candidate_vote_counts);
             let mut min_candidate_votes: u64 = u64::MAX;
             // impossible for any candidate to win as sum of
             // candidate votes is under the total number of votes casted
@@ -244,6 +247,9 @@ impl RankedChoiceVoteTrie {
                 candidate_vote_counts.remove(&weakest_candidate);
                 frontier_nodes.remove(&weakest_candidate);
             }
+
+            // 0 vote transfers will be done, election is unable to progress
+            if all_vote_transfers.len() == 0 { return None; }
 
             // conduct vote transfers to next candidates and trie nodes
             for vote_transfer in all_vote_transfers {

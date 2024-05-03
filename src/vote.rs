@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 #[derive(Copy, Clone, Eq, PartialEq, Hash)]
 pub enum SpecialVotes {
     WITHHOLD,
@@ -14,7 +16,8 @@ pub enum VoteValues {
 pub enum VoteErrors {
     InvalidCastToSpecialVote,
     ReadOutOfBounds,
-    NonFinalSpecialVote
+    NonFinalSpecialVote,
+    DuplicateVotes
 }
 
 impl VoteValues {
@@ -36,14 +39,14 @@ impl VoteValues {
 }
 
 impl SpecialVotes {
-    fn to_int(&self) -> i32 {
+    pub const fn to_int(&self) -> i32 {
         match self {
             SpecialVotes::WITHHOLD => -1,
             SpecialVotes::ABSTAIN => -2
         }
     }
 
-    fn from_int(raw_value: i32) -> Result<SpecialVotes, VoteErrors> {
+    pub const fn from_int(raw_value: i32) -> Result<SpecialVotes, VoteErrors> {
         match raw_value {
             -1 => Ok(SpecialVotes::WITHHOLD),
             -2 => Ok(SpecialVotes::ABSTAIN),
@@ -89,7 +92,7 @@ impl VoteStruct {
     }
 
     pub fn from_vectors(
-        raw_votes: Vec<Vec<i32>>
+        raw_votes: &Vec<Vec<i32>>
     ) -> Result<Vec<VoteStruct>, VoteErrors> {
         let mut votes: Vec<VoteStruct> = Vec::new();
 
@@ -106,14 +109,23 @@ impl VoteStruct {
         return Ok(votes);
     }
 
-    pub fn from_vector(raw_rankings: Vec<i32>) -> Result<VoteStruct, VoteErrors> {
+    pub fn from_vector(raw_rankings: &Vec<i32>) -> Result<VoteStruct, VoteErrors> {
+        // println!("INSERT {:?}", raw_rankings);
         let mut rankings: Vec<u16> = Vec::new();
         let mut special_vote: Option<SpecialVotes> = None;
+        let mut unique_values = HashSet::new();
         let length = raw_rankings.len();
         let last_index = length - 1;
 
         for (k, raw_ranking) in raw_rankings.iter().enumerate() {
             let is_last_index = k == last_index;
+
+            if unique_values.contains(raw_ranking) {
+                return Err(VoteErrors::DuplicateVotes);
+            } else {
+                unique_values.insert(*raw_ranking);
+            }
+
             if raw_ranking.is_negative() {
                 if !is_last_index {
                     return Err(VoteErrors::NonFinalSpecialVote);
@@ -134,6 +146,7 @@ impl VoteStruct {
             }
         }
 
+        // println!("INSERT_END {:?}", raw_rankings);
         return Ok(VoteStruct { rankings, special_vote })
     }
 
@@ -170,7 +183,9 @@ impl<'a> Iterator for VoteStructIterator<'a> {
         return match self.special_vote {
             None => None,
             Some(special_vote) => {
-                Some(VoteValues::SpecialVote(*special_vote))
+                let item = Some(VoteValues::SpecialVote(*special_vote));
+                self.special_vote = None;
+                return item;
             }
         }
     }
@@ -183,5 +198,15 @@ impl VoteStruct {
             rankings_iter: self.rankings.iter(),
             special_vote: self.special_vote.as_ref(),
         }
+    }
+}
+
+pub trait ToVotes {
+    fn to_votes(&self) -> Result<Vec<VoteStruct>, VoteErrors>;
+}
+
+impl ToVotes for Vec<Vec<i32>> {
+    fn to_votes(&self) -> Result<Vec<VoteStruct>, VoteErrors> {
+        return VoteStruct::from_vectors(self);
     }
 }
