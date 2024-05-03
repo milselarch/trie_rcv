@@ -65,6 +65,10 @@ impl RankedChoiceVoteTrie {
         }
     }
 
+    pub fn set_elimination_strategy(&mut self, strategy: EliminationStrategies) {
+        self.elimination_strategy = strategy;
+    }
+
     pub fn insert_votes(&mut self, votes: Vec<VoteStruct>) {
         for vote in votes {
             self.insert_vote(vote);
