@@ -66,7 +66,8 @@ fn test_zero_vote_end() {
     let winner = rcv.run_election(votes);
     println!("WINNER = {:?}", winner);
     assert_eq!(
-        winner, None,
-        "Candidate 1's vote should not count, no one should have majority"
-    );
+        winner, None, concat![
+        "Candidate 1's vote should not count after round 1, ",
+        "no one should have majority"
+    ]);
 }

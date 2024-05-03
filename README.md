@@ -32,3 +32,27 @@ where the `withhold` vote allows the voter to declare for none of the candidates
 the abstain vote allows the voter to voluntarily remove himself from the poll
 (this is useful for improving the chances that the rest of the votes are able 
 to conclude with a winning candidate)
+
+```rust
+use trie_rcv;
+use trie_rcv::RankedChoiceVoteTrie;
+use trie_rcv::vote::{VoteStruct, SpecialVotes};
+
+fn main() {
+    let votes = VoteStruct::from_vectors(&vec![
+        vec![1, SpecialVotes::WITHHOLD.to_int()],
+        vec![2, 1],
+        vec![3, 2],
+        vec![3]
+    ]).unwrap();
+
+    let rcv = RankedChoiceVoteTrie::new();
+    let winner = rcv.run_election(votes);
+    println!("WINNER = {:?}", winner);
+    assert_eq!(
+        winner, None, concat![
+        "Candidate 1's vote should not count after round 1, ",
+        "no one should have majority"
+    ]);
+}
+```
