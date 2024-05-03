@@ -69,13 +69,13 @@ impl RankedChoiceVoteTrie {
         self.elimination_strategy = strategy;
     }
 
-    pub fn insert_votes(&mut self, votes: Vec<VoteStruct>) {
+    pub fn insert_votes(&mut self, votes: Vec<RankedVote>) {
         for vote in votes {
             self.insert_vote(vote);
         }
     }
 
-    pub fn insert_vote<'a>(&mut self, vote: VoteStruct) {
+    pub fn insert_vote<'a>(&mut self, vote: RankedVote) {
         let mut current = &mut self.root;
         let vote_items = vote.iter().enumerate();
 
@@ -173,7 +173,7 @@ impl RankedChoiceVoteTrie {
         return weakest_candidates;
     }
 
-    pub fn run_election(&self, votes: Vec<VoteStruct>) -> Option<u16> {
+    pub fn run_election(&self, votes: Vec<RankedVote>) -> Option<u16> {
         let mut rcv = RankedChoiceVoteTrie {
             root: Default::default(),
             dowdall_score_map: Default::default(),

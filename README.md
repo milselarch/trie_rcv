@@ -10,10 +10,10 @@ Example usage:
 ```rust
 use trie_rcv;
 use trie_rcv::RankedChoiceVoteTrie;
-use trie_rcv::vote::VoteStruct;
+use trie_rcv::vote::RankedVote;
 
 fn main() {
-    let votes = VoteStruct::from_vectors(&vec![
+    let votes = RankedVote::from_vectors(&vec![
         vec![1, 2, 3, 4],
         vec![1, 2, 3],
         vec![3],
@@ -37,10 +37,10 @@ to conclude with a winning candidate)
 ```rust
 use trie_rcv;
 use trie_rcv::RankedChoiceVoteTrie;
-use trie_rcv::vote::{VoteStruct, SpecialVotes};
+use trie_rcv::vote::{RankedVote, SpecialVotes};
 
 fn main() {
-    let votes = VoteStruct::from_vectors(&vec![
+    let votes = RankedVote::from_vectors(&vec![
         vec![1, SpecialVotes::WITHHOLD.to_int()],
         vec![2, 1],
         vec![3, 2],

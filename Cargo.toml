@@ -1,6 +1,6 @@
 [package]
 name = "trie_rcv"
-version = "1.0.0"
+version = "1.0.1"
 edition = "2021"
 description = "Ranked Choice Voting implementation using Tries in Rust"
 license = "Apache-2.0"

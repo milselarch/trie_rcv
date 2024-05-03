@@ -55,7 +55,7 @@ impl SpecialVotes {
     }
 }
 
-pub struct VoteStruct {
+pub struct RankedVote {
     rankings: Vec<u16>,
     special_vote: Option<SpecialVotes>
 }
@@ -64,7 +64,7 @@ trait Vote {
     fn to_vector(&self) -> Vec<i32>;
 }
 
-impl VoteStruct {
+impl RankedVote {
     pub fn len(&self) -> usize {
         let mut length = self.rankings.len();
         if self.special_vote.is_some() { length += 1; }
@@ -93,11 +93,11 @@ impl VoteStruct {
 
     pub fn from_vectors(
         raw_votes: &Vec<Vec<i32>>
-    ) -> Result<Vec<VoteStruct>, VoteErrors> {
-        let mut votes: Vec<VoteStruct> = Vec::new();
+    ) -> Result<Vec<RankedVote>, VoteErrors> {
+        let mut votes: Vec<RankedVote> = Vec::new();
 
         for raw_vote in raw_votes {
-            let result = VoteStruct::from_vector(raw_vote);
+            let result = RankedVote::from_vector(raw_vote);
             match result {
                 Err(err) => return Err(err),
                 Ok(vote_struct) => {
@@ -109,7 +109,7 @@ impl VoteStruct {
         return Ok(votes);
     }
 
-    pub fn from_vector(raw_rankings: &Vec<i32>) -> Result<VoteStruct, VoteErrors> {
+    pub fn from_vector(raw_rankings: &Vec<i32>) -> Result<RankedVote, VoteErrors> {
         // println!("INSERT {:?}", raw_rankings);
         let mut rankings: Vec<u16> = Vec::new();
         let mut special_vote: Option<SpecialVotes> = None;
@@ -147,7 +147,7 @@ impl VoteStruct {
         }
 
         // println!("INSERT_END {:?}", raw_rankings);
-        return Ok(VoteStruct { rankings, special_vote })
+        return Ok(RankedVote { rankings, special_vote })
     }
 
     pub fn to_vector(&self) -> Vec<i32> {
@@ -191,7 +191,7 @@ impl<'a> Iterator for VoteStructIterator<'a> {
     }
 }
 
-impl VoteStruct {
+impl RankedVote {
     // Method to create an iterator over the vote values
     pub fn iter(&self) -> VoteStructIterator {
         VoteStructIterator {
@@ -202,11 +202,11 @@ impl VoteStruct {
 }
 
 pub trait ToVotes {
-    fn to_votes(&self) -> Result<Vec<VoteStruct>, VoteErrors>;
+    fn to_votes(&self) -> Result<Vec<RankedVote>, VoteErrors>;
 }
 
 impl ToVotes for Vec<Vec<i32>> {
-    fn to_votes(&self) -> Result<Vec<VoteStruct>, VoteErrors> {
-        return VoteStruct::from_vectors(self);
+    fn to_votes(&self) -> Result<Vec<RankedVote>, VoteErrors> {
+        return RankedVote::from_vectors(self);
     }
 }
