@@ -1,8 +1,18 @@
 use std::cmp::min;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use petgraph::graph::{DiGraph, NodeIndex};
+use itertools::iproduct;
+use std::collections::VecDeque;
+use petgraph::prelude::EdgeRef;
+
 pub use vote::*;
 
 pub mod vote;
+
+#[derive(PartialEq)]
+pub enum PairPreferences {
+    PreferredOver, Inconclusive, PreferredAgainst
+}
 
 #[derive(Default)]
 struct TrieNode {
@@ -51,9 +61,69 @@ struct VoteTransferChanges<'a> {
     vote_transfers: Vec<VoteTransfer<'a>>
 }
 
+// strategies for how to eliminate candidates each round
 #[derive(Clone, PartialEq)]
 pub enum EliminationStrategies {
-    EliminateAll, DowdallScoring, RankedPairs
+    // eliminate all candidates with the lowest number of votes
+    EliminateAll,
+    // eliminate the candidate(s) with both the lowest number of votes
+    // followed by the lowest dowdall score
+    DowdallScoring,
+    // eliminate the candidate(s) with both the lowest number of votes
+    // and who lose against other candidates with the same number of votes
+    // in a head-to-head comparison
+    RankedPairs
+}
+
+fn is_graph_acyclic(graph: &DiGraph<u16, u64>) -> bool {
+    todo!()
+}
+
+fn pecking_order_in_graph(graph: &DiGraph<u16, u64>) -> bool {
+    /*
+    Checks if:
+    1.  there is a set of nodes where there are no other nodes outside
+        that set that are preferred over it in a head-to-head comparison
+    2.  there is a set of nodes where there are no other nodes outside
+        that set that are preferred against it in a head-to-head comparison
+    3.  graph is weakly connected i.e. every node is able to each every other
+        node if all the edges are converted from directed to undirected
+    4.  graph is acyclic i.e. there doesn't exist any path of directed edges
+        from some edge in the graph back to itself
+    */
+    if !is_graph_acyclic(graph) { return false; }
+    let check_is_outgoing = |&node| {
+        graph.edges_directed(node, petgraph::Direction::Incoming).count() == 0
+    };
+
+    let outgoing_only_nodes: Vec<NodeIndex> = graph
+        .node_indices().filter(check_is_outgoing).collect();
+    let mut explored_nodes = HashSet::<NodeIndex>::new();
+    let mut queue = VecDeque::<NodeIndex>::new();
+    queue.extend(outgoing_only_nodes);
+
+    loop {
+        let node_idx_option = queue.pop_front();
+        let node_idx = match node_idx_option {
+            None => { break }
+            Some(node_idx) => { node_idx }
+        };
+
+        if explored_nodes.contains(&node_idx) { continue }
+        explored_nodes.insert(node_idx);
+
+        let outgoing_neighbors: Vec<NodeIndex> = graph
+            .edges_directed(node_idx, petgraph::Direction::Outgoing)
+            .map(|edge| edge.target())
+            .collect();
+
+        for neighbor in outgoing_neighbors {
+            if explored_nodes.contains(&neighbor) { continue }
+            queue.push_back(neighbor);
+        }
+    }
+
+    return graph.node_count() == explored_nodes.len()
 }
 
 impl RankedChoiceVoteTrie {
@@ -148,6 +218,73 @@ impl RankedChoiceVoteTrie {
         frontier_nodes.entry(*candidate).or_insert(Vec::new())
     }
 
+    fn find_ranked_pairs_weakest(
+        &self, candidates: Vec<u16>,
+        ranked_pairs_map: &HashMap<(u16, u16), u64>
+    ) -> Vec<u16> {
+        let mut weakest_candidates: Vec<u16> = Vec::new();
+        let mut graph = DiGraph::<u16, u64>::new();
+        let mut node_map = HashMap::<u16, NodeIndex>::new();
+
+        /*
+        Determines whether candidate1 is preferred over candidate2 overall,
+        or vice versa, or there is no net preference between the two.
+        Also returns the net number of votes along said overall preference
+        */
+        let get_preference = |
+            candidate1: u16, candidate2: u16
+        | -> (PairPreferences, u64) {
+            let preferred_over_votes =
+                ranked_pairs_map.get(&(candidate1, candidate2))
+                .unwrap_or(&0);
+            let preferred_against_votes =
+                ranked_pairs_map.get(&(candidate2, candidate1))
+                .unwrap_or(&0);
+
+            return if preferred_over_votes > preferred_against_votes {
+                let strength = preferred_over_votes - preferred_against_votes;
+                (PairPreferences::PreferredOver, strength)
+            } else if preferred_over_votes == preferred_against_votes {
+                (PairPreferences::Inconclusive, 0)
+            } else {
+                let strength = preferred_against_votes - preferred_over_votes;
+                (PairPreferences::PreferredAgainst, strength)
+            }
+        };
+
+        let get_or_create_node = |candidate: u16| -> NodeIndex {
+            if let Some(&existing_index) = node_map.get(&candidate) {
+                existing_index
+            } else {
+                let index = graph.add_node(candidate);
+                node_map.insert(candidate, index);
+                index
+            }
+        };
+
+        // construct preference strength graph between candidates
+        for (candidate1, candidate2) in iproduct!(&candidates, &candidates) {
+            if candidate1 == candidate2 { continue }
+            let (preference, strength) =
+                get_preference(*candidate1, *candidate2);
+
+            match preference {
+                PairPreferences::PreferredAgainst => { continue }
+                PairPreferences::Inconclusive => { continue }
+                PairPreferences::PreferredOver => {}
+            }
+
+            assert!(preference == PairPreferences::PreferredOver);
+            let node1_idx = get_or_create_node(*candidate1);
+            let node2_idx = get_or_create_node(*candidate2);
+            if !graph.contains_edge(node1_idx, node2_idx) {
+                graph.add_edge(node1_idx, node2_idx, strength);
+            }
+        }
+
+        return weakest_candidates;
+    }
+
     fn find_dowdall_weakest(&self, candidates: Vec<u16>) -> Vec<u16> {
         /*
         returns the subset of candidates from the input candidates vector
@@ -185,11 +322,17 @@ impl RankedChoiceVoteTrie {
 
     pub fn build_ranked_pairs_map(
         &self, node: &TrieNode, search_path: &mut Vec<u16>,
-        ranked_pairs_map: &mut HashMap<(u16, u16), u16>
+        ranked_pairs_map: &mut HashMap<(u16, u16), u64>
     ) {
-        let kv_pairs_vec: Vec<(&VoteValues, &TrieNode)> =
-            node.children.iter().collect();
-        for (vote_value, child) in kv_pairs_vec {
+        let kv_pairs_vec: Vec<(Box<&VoteValues>, Box<&TrieNode>)> =
+            node.children.iter().map(|(vote_value, node)| {
+                (Box::new(vote_value), Box::new(node))
+            }).collect();
+
+        for (boxed_vote_value, boxed_child) in kv_pairs_vec {
+            let vote_value = *boxed_vote_value;
+            let child = *boxed_child;
+
             let candidate = match vote_value {
                 VoteValues::SpecialVote(_) => { continue }
                 VoteValues::Candidate(candidate) => { candidate }
@@ -199,7 +342,7 @@ impl RankedChoiceVoteTrie {
                 let ranked_pair = (*preferred_candidate, *candidate);
                 let pairwise_votes =
                     ranked_pairs_map.entry(ranked_pair).or_insert(0);
-                *pairwise_votes += 1;
+                *pairwise_votes += child.num_votes;
             }
 
             search_path.push(*candidate);
@@ -237,7 +380,7 @@ impl RankedChoiceVoteTrie {
             };
         }
 
-        let mut ranked_pairs_map: HashMap<(u16, u16), u16> = HashMap::new();
+        let mut ranked_pairs_map: HashMap<(u16, u16), u64> = HashMap::new();
         if self.elimination_strategy == EliminationStrategies::RankedPairs {
             self.build_ranked_pairs_map(
                 &self.root, &mut Vec::new(), &mut ranked_pairs_map
