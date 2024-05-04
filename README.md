@@ -1,6 +1,7 @@
 # trie_rcv
 [https://crates.io/crates/trie_rcv](https://crates.io/crates/trie_rcv)  
 Ranked Choice Voting (RCV) implementation using Tries in Rust.  
+
 RCV differs from normal first past the post voting in that voters are allowed 
 to rank candidates from most to least preferable. To determine the winner of an RCV election, the
 least votes for the least popular candidate(s) are transferred to their next choice until 

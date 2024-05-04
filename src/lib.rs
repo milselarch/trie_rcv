@@ -51,9 +51,9 @@ struct VoteTransferChanges<'a> {
     vote_transfers: Vec<VoteTransfer<'a>>
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub enum EliminationStrategies {
-    EliminateAll, DowdallScoring
+    EliminateAll, DowdallScoring, RankedPairs
 }
 
 impl RankedChoiceVoteTrie {
@@ -183,6 +183,31 @@ impl RankedChoiceVoteTrie {
         return rcv.determine_winner();
     }
 
+    pub fn build_ranked_pairs_map(
+        &self, node: &TrieNode, search_path: &mut Vec<u16>,
+        ranked_pairs_map: &mut HashMap<(u16, u16), u16>
+    ) {
+        let kv_pairs_vec: Vec<(&VoteValues, &TrieNode)> =
+            node.children.iter().collect();
+        for (vote_value, child) in kv_pairs_vec {
+            let candidate = match vote_value {
+                VoteValues::SpecialVote(_) => { continue }
+                VoteValues::Candidate(candidate) => { candidate }
+            };
+
+            for preferred_candidate in search_path.iter() {
+                let ranked_pair = (*preferred_candidate, *candidate);
+                let pairwise_votes =
+                    ranked_pairs_map.entry(ranked_pair).or_insert(0);
+                *pairwise_votes += 1;
+            }
+
+            search_path.push(*candidate);
+            self.build_ranked_pairs_map(child, search_path, ranked_pairs_map);
+            search_path.pop();
+        };
+    }
+
     pub fn determine_winner<'a>(&self) -> Option<u16> {
         // println!("RUN_ELECTION_START");
         let mut candidate_vote_counts: HashMap<u16, u64> = HashMap::new();
@@ -210,6 +235,13 @@ impl RankedChoiceVoteTrie {
                     effective_total_votes += node.num_votes;
                 }
             };
+        }
+
+        let mut ranked_pairs_map: HashMap<(u16, u16), u16> = HashMap::new();
+        if self.elimination_strategy == EliminationStrategies::RankedPairs {
+            self.build_ranked_pairs_map(
+                &self.root, &mut Vec::new(), &mut ranked_pairs_map
+            );
         }
 
         while candidate_vote_counts.len() > 0 {
@@ -243,6 +275,9 @@ impl RankedChoiceVoteTrie {
                 EliminationStrategies::EliminateAll => {},
                 EliminationStrategies::DowdallScoring => {
                     weakest_candidates = self.find_dowdall_weakest(weakest_candidates);
+                },
+                EliminationStrategies::RankedPairs => {
+                    todo!();
                 }
             }
 
