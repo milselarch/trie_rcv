@@ -186,9 +186,9 @@ impl RankedChoiceVoteTrie {
     }
 
     pub fn insert_vote<'a>(&mut self, vote: RankedVote) {
+        self.root.num_votes += 1;
         let mut current = &mut self.root;
         let vote_items = vote.iter().enumerate();
-        current.num_votes += 1;
 
         for (ranking, vote_value) in vote_items {
             // println!("ITEM {}", ranking);

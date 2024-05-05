@@ -17,7 +17,8 @@ pub enum VoteErrors {
     InvalidCastToSpecialVote,
     ReadOutOfBounds,
     NonFinalSpecialVote,
-    DuplicateVotes
+    DuplicateVotes,
+    VoteIsEmpty
 }
 
 impl VoteValues {
@@ -159,6 +160,10 @@ impl RankedVote {
                     },
                 }
             }
+        }
+
+        if special_vote_value.is_none() && candidates.is_empty() {
+            return Err(VoteErrors::VoteIsEmpty)
         }
 
         // println!("INSERT_END {:?}", raw_rankings);
