@@ -14,6 +14,19 @@ use trie_rcv::RankedChoiceVoteTrie;
 use trie_rcv::vote::RankedVote;
 
 fn main() {
+    let mut rcv = RankedChoiceVoteTrie::new();
+    rcv.set_elimination_strategy(EliminationStrategies::EliminateAll);
+
+    rcv.insert_vote(RankedVote::from_vector(&vec![1, 2, 3, 4]).unwrap());
+    rcv.insert_vote(RankedVote::from_vector(&vec![1, 2, 3]).unwrap());
+    rcv.insert_vote(RankedVote::from_vector(&vec![3]).unwrap());
+    rcv.insert_vote(RankedVote::from_vector(&vec![3, 2, 4]).unwrap());
+    rcv.insert_vote(RankedVote::from_vector(&vec![4, 1]).unwrap());
+    let winner = rcv.determine_winner();
+    println!("WINNER = {:?}", winner);
+    assert_eq!(winner, Some(1),);
+    
+    // alternatively:
     let votes = RankedVote::from_vectors(&vec![
         vec![1, 2, 3, 4],
         vec![1, 2, 3],
@@ -22,10 +35,9 @@ fn main() {
         vec![4, 1]
     ]).unwrap();
 
-    let rcv = RankedChoiceVoteTrie::new();
-    let winner = rcv.run_election(votes);
-    println!("WINNER = {:?}", winner);
-    assert_eq!(winner, Some(1));
+    let winner2 = rcv.run_election(votes);
+    println!("WINNER = {:?}", winner2);
+    assert_eq!(winner2, Some(1));
 }
 ```
 

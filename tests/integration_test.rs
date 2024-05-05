@@ -25,6 +25,24 @@ fn test_basic_scenario() {
 }
 
 #[test]
+fn test_vote_insert() {
+    let mut rcv = RankedChoiceVoteTrie::new();
+    rcv.set_elimination_strategy(EliminationStrategies::EliminateAll);
+
+    rcv.insert_vote(RankedVote::from_vector(&vec![1, 2, 3, 4]).unwrap());
+    rcv.insert_vote(RankedVote::from_vector(&vec![1, 2, 3]).unwrap());
+    rcv.insert_vote(RankedVote::from_vector(&vec![3]).unwrap());
+    rcv.insert_vote(RankedVote::from_vector(&vec![3, 2, 4]).unwrap());
+    rcv.insert_vote(RankedVote::from_vector(&vec![4, 1]).unwrap());
+    let winner = rcv.determine_winner();
+    println!("WINNER = {:?}", winner);
+    assert_eq!(
+        winner, Some(1),
+        "Vote 4 > 1 should go to 1, leading to Candidate 1 winning"
+    );
+}
+
+#[test]
 fn test_simple_majority() {
     let votes = RankedVote::from_vectors(&vec![
         vec![1, 2, 3, 4],
