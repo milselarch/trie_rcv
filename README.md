@@ -24,7 +24,7 @@ fn main() {
     rcv.insert_vote(RankedVote::from_vector(&vec![4, 1]).unwrap());
     let winner = rcv.determine_winner();
     println!("WINNER = {:?}", winner);
-    assert_eq!(winner, Some(1),);
+    assert_eq!(winner, Some(1));
     
     // alternatively:
     let votes = RankedVote::from_vectors(&vec![
