@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-#[derive(Copy, Clone, Eq, PartialEq, Hash)]
+#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
 pub enum SpecialVotes {
     WITHHOLD,
     ABSTAIN
@@ -125,10 +125,10 @@ impl RankedVote {
         let mut candidates: Vec<u16> = Vec::new();
         let mut special_vote_value: Option<SpecialVotes> = None;
         let mut unique_values = HashSet::new();
-        let length = raw_ranked_vote.len();
-        let last_index = length - 1;
 
         for (k, raw_ranked_vote_value) in raw_ranked_vote.iter().enumerate() {
+            let length = raw_ranked_vote.len();
+            let last_index = length - 1;
             let is_last_index = k == last_index;
 
             if unique_values.contains(raw_ranked_vote_value) {
@@ -230,5 +230,52 @@ pub trait ToVotes {
 impl ToVotes for Vec<Vec<i32>> {
     fn to_votes(&self) -> Result<Vec<RankedVote>, VoteErrors> {
         return RankedVote::from_vectors(self);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_empty_vote_not_allowed() {
+        let cast_result = RankedVote::from_vector(&vec![]);
+        assert!(cast_result.is_err());
+    }
+
+    #[test]
+    fn test_duplicate_vote_not_allowed() {
+        let cast_result = RankedVote::from_vector(&vec![1, 2, 1]);
+        assert!(cast_result.is_err());
+    }
+
+    #[test]
+    fn test_special_vote_enum_consistency() {
+        let withhold_vote_val =
+            SpecialVotes::from_int(SpecialVotes::WITHHOLD.to_int()).unwrap();
+        let abstain_vote_val =
+            SpecialVotes::from_int(SpecialVotes::ABSTAIN.to_int()).unwrap();
+
+        assert_ne!(withhold_vote_val, abstain_vote_val);
+        assert_eq!(withhold_vote_val, SpecialVotes::WITHHOLD);
+        assert_eq!(abstain_vote_val, SpecialVotes::ABSTAIN);
+    }
+
+    #[test]
+    fn test_non_final_special_votes_not_allowed() {
+        let cast_result = RankedVote::from_vector(&vec![
+            1, 2, 4, SpecialVotes::WITHHOLD.to_int(), 1
+        ]);
+        assert!(cast_result.is_err());
+    }
+
+    #[test]
+    fn test_from_to_vector() {
+        // checks from then to vector conversion yields original input
+        let raw_ranked_vote = vec![1, 2, 6, 3];
+        assert_eq!(
+            RankedVote::from_vector(&raw_ranked_vote).unwrap().to_vector(),
+            raw_ranked_vote
+        )
     }
 }

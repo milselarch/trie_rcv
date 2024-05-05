@@ -88,7 +88,7 @@ fn main() {
     let winner_round2 = rcv.run_election(votes_round2);
     println!("WINNER = {:?}", winner_round2);
     assert_eq!(
-        winner_round2, Some(3), concat![
+       winner_round2, Some(3), concat![
        "First vote is ignored in round 2, candidate 3 wins"
     ]);
 }
