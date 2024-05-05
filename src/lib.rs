@@ -1,8 +1,19 @@
 use std::cmp::min;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use petgraph::graph::{DiGraph, NodeIndex};
+use itertools::{iproduct, Itertools};
+use std::collections::VecDeque;
+use petgraph::Direction;
+use petgraph::prelude::EdgeRef;
+
 pub use vote::*;
 
 pub mod vote;
+
+#[derive(PartialEq)]
+pub enum PairPreferences {
+    PreferredOver, Inconclusive, PreferredAgainst
+}
 
 #[derive(Default)]
 struct TrieNode {
@@ -36,7 +47,8 @@ impl TrieNode {
 pub struct RankedChoiceVoteTrie {
     root: TrieNode,
     dowdall_score_map: HashMap<u16, f32>,
-    elimination_strategy: EliminationStrategies
+    elimination_strategy: EliminationStrategies,
+    unique_candidates: HashSet<u16>
 }
 
 struct VoteTransfer<'a> {
@@ -51,9 +63,106 @@ struct VoteTransferChanges<'a> {
     vote_transfers: Vec<VoteTransfer<'a>>
 }
 
-#[derive(Clone)]
+// strategies for how to eliminate candidates each round
+#[derive(Clone, PartialEq)]
 pub enum EliminationStrategies {
-    EliminateAll, DowdallScoring
+    // removes all candidates with the lowest number of votes each round
+    EliminateAll,
+    // eliminate the candidate(s) with both the lowest number of votes
+    // followed by the lowest dowdall score
+    DowdallScoring,
+    // eliminate the candidate(s) with both the lowest number of votes
+    // and who lose against other candidates with the same number of votes
+    // in a head-to-head comparison
+    RankedPairs
+}
+
+fn is_graph_acyclic(graph: &DiGraph<u16, u64>) -> bool {
+    /*
+    checks if there doesn't exist any path of directed edges
+    from some edge in the graph back to itself
+    */
+    if graph.node_count() == 0 { return true }
+    let nodes: Vec<NodeIndex> = graph.node_indices().collect();
+    let mut all_explored_nodes = HashSet::<NodeIndex>::new();
+
+    fn dfs_find_cycle(
+        node: &NodeIndex, path: &mut Vec<NodeIndex>,
+        explored: &mut HashSet::<NodeIndex>, graph: &DiGraph<u16, u64>
+    ) -> bool {
+        // use DFS to see if a cycle can be created from paths starting from node
+        explored.insert(*node);
+
+        // get neighbors of node where there is an
+        // outgoing edge from node to neighbor
+        let directed_neighbors: Vec<NodeIndex> = graph
+            .edges_directed(*node, petgraph::Direction::Outgoing)
+            .map(|edge| { edge.target()} )
+            .collect();
+
+        for neighbor in directed_neighbors {
+            if path.contains(&neighbor) { return true }
+            path.push(neighbor);
+            let has_cycle = dfs_find_cycle(&neighbor, path, explored, graph);
+            path.pop();
+
+            if has_cycle { return true }
+        }
+
+        return false;
+    }
+
+    for node in nodes {
+        if all_explored_nodes.contains(&node) { continue }
+        let mut dfs_explored_nodes = HashSet::<NodeIndex>::new();
+        let has_cycle = dfs_find_cycle(
+            &node, &mut Vec::<NodeIndex>::new(), &mut dfs_explored_nodes, graph
+        );
+
+        if has_cycle { return false }
+        all_explored_nodes.extend(dfs_explored_nodes.iter().collect_vec());
+    }
+
+    return true;
+}
+
+fn is_graph_weakly_connected(graph: &DiGraph<u16, u64>) -> bool {
+    /*
+    checks if there is a path from every node to every other
+    node when all the edges are converted from directed to undirected
+    */
+    if graph.node_count() == 0 { return true }
+    let mut queue = VecDeque::<NodeIndex>::new();
+    let mut explored_nodes = HashSet::<NodeIndex>::new();
+    let nodes: Vec<NodeIndex> = graph.node_indices().collect();
+    let start_node = nodes[0];
+    queue.push_back(start_node);
+
+    let get_undirected_neighbors = |node: NodeIndex| {
+        let mut neighbors = Vec::<NodeIndex>::new();
+        neighbors.extend(graph.neighbors_directed(node, Direction::Incoming));
+        neighbors.extend(graph.neighbors_directed(node, Direction::Outgoing));
+        return neighbors;
+    };
+
+    // do a DFS search to see if all nodes are reachable from start_node
+    loop {
+        let node = match queue.pop_back() {
+            None => { break; }
+            Some(node) => node
+        };
+
+        if explored_nodes.contains(&node) { continue }
+        explored_nodes.insert(node);
+
+        let neighbors: Vec<NodeIndex> = get_undirected_neighbors(node);
+        // println!("DFS {:?}", (node, &neighbors));
+        for neighbor in neighbors {
+            queue.push_back(neighbor)
+        }
+    }
+
+    return explored_nodes.len() == graph.node_count()
 }
 
 impl RankedChoiceVoteTrie {
@@ -62,6 +171,7 @@ impl RankedChoiceVoteTrie {
             root: TrieNode::new(),
             dowdall_score_map: Default::default(),
             elimination_strategy: EliminationStrategies::DowdallScoring,
+            unique_candidates: Default::default(),
         }
     }
 
@@ -78,12 +188,14 @@ impl RankedChoiceVoteTrie {
     pub fn insert_vote<'a>(&mut self, vote: RankedVote) {
         let mut current = &mut self.root;
         let vote_items = vote.iter().enumerate();
+        current.num_votes += 1;
 
         for (ranking, vote_value) in vote_items {
             // println!("ITEM {}", ranking);
             match vote_value {
                 VoteValues::SpecialVote(_) => {}
                 VoteValues::Candidate(candidate) => {
+                    self.unique_candidates.insert(candidate);
                     let score = *self.dowdall_score_map
                         .entry(candidate).or_insert(0f32);
                     let new_score = score + 1.0 / (ranking + 1) as f32;
@@ -141,11 +253,121 @@ impl RankedChoiceVoteTrie {
         return transfer_changes;
     }
 
-    fn get_or_create_nodes<'a>(
-        &'a self, candidate: &u16,
-        frontier_nodes: &'a mut HashMap<u16, Vec<&'a TrieNode>>
-    ) -> &mut Vec<&TrieNode> {
-        frontier_nodes.entry(*candidate).or_insert(Vec::new())
+    fn find_ranked_pairs_weakest(
+        &self, candidates: Vec<u16>,
+        ranked_pairs_map: &HashMap<(u16, u16), u64>
+    ) -> Vec<u16> {
+        // println!("\n----------------");
+        // println!("PRE_RANK_FILTER {:?}", candidates);
+        // println!("PAIRS_MAP {:?}", ranked_pairs_map);
+        let mut graph = DiGraph::<u16, u64>::new();
+        let mut node_map = HashMap::<u16, NodeIndex>::new();
+
+        /*
+        Determines whether candidate1 is preferred over candidate2 overall,
+        or vice versa, or there is no net preference between the two.
+        Also returns the net number of votes along said overall preference
+        */
+        let get_preference = |
+            candidate1: u16, candidate2: u16
+        | -> (PairPreferences, u64) {
+            let preferred_over_votes =
+                ranked_pairs_map.get(&(candidate1, candidate2))
+                .unwrap_or(&0);
+            let preferred_against_votes =
+                ranked_pairs_map.get(&(candidate2, candidate1))
+                .unwrap_or(&0);
+
+            /*
+            println!("C_PAIR {:?}", (
+                (candidate1, candidate2),
+                (preferred_over_votes, preferred_against_votes)
+            ));
+            */
+
+            return if preferred_over_votes > preferred_against_votes {
+                let strength = preferred_over_votes - preferred_against_votes;
+                (PairPreferences::PreferredOver, strength)
+            } else if preferred_over_votes == preferred_against_votes {
+                (PairPreferences::Inconclusive, 0)
+            } else {
+                let strength = preferred_against_votes - preferred_over_votes;
+                (PairPreferences::PreferredAgainst, strength)
+            }
+        };
+
+        fn get_or_create_node (
+            graph: &mut DiGraph<u16, u64>,
+            node_map: &mut HashMap<u16, NodeIndex>,
+            candidate: u16
+        ) -> NodeIndex {
+            // println!("NODE_MAP_PRE {:?}", (candidate, &node_map, &graph));
+            let node = match node_map.get(&candidate) {
+                Some(node) => { *node }
+                None => {
+                    let node = graph.add_node(candidate);
+                    node_map.insert(candidate, node);
+                    node
+                }
+            };
+
+            // println!("NODE_MAP_POST {:?}", (candidate, &node_map, &graph));
+            return node;
+        }
+
+        // initialize all the nodes in the graph
+        for candidate in &candidates {
+            get_or_create_node(&mut graph, &mut node_map, *candidate);
+        }
+
+        // construct preference strength graph between candidates
+        for (candidate1, candidate2) in iproduct!(&candidates, &candidates) {
+            if candidate1 == candidate2 { continue }
+            let (preference, strength) =
+                get_preference(*candidate1, *candidate2);
+
+            match preference {
+                PairPreferences::PreferredAgainst => { continue }
+                PairPreferences::Inconclusive => { continue }
+                PairPreferences::PreferredOver => {}
+            }
+
+            assert!(preference == PairPreferences::PreferredOver);
+            let node1_idx =
+                get_or_create_node(&mut graph, &mut node_map, *candidate1);
+            let node2_idx =
+                get_or_create_node(&mut graph, &mut node_map, *candidate2);
+            if !graph.contains_edge(node1_idx, node2_idx) {
+                // println!("ADD_EDGE {:?}", (node1_idx, node2_idx));
+                graph.add_edge(node1_idx, node2_idx, strength);
+            }
+        }
+
+        // println!("GRAPH {:?}", graph);
+        // unable to establish pecking order among candidates
+        if !(is_graph_acyclic(&graph) && is_graph_weakly_connected(&graph)) {
+            /*
+            println!("POST_RANK_FILTER {:?}", (
+                &candidates, is_graph_acyclic(&graph),
+                is_graph_weakly_connected(&graph))
+            );
+            */
+            return candidates.clone();
+        }
+
+        let has_no_outgoing_edges = |&node: &NodeIndex| -> bool {
+            graph.neighbors_directed(node, Direction::Outgoing).count() == 0
+        };
+        let weakest_nodes: Vec<NodeIndex> = graph
+            .node_indices()
+            .filter(has_no_outgoing_edges)
+            .collect();
+
+        let weakest_candidates = weakest_nodes
+            .iter().map(|&index| graph[index]).collect();
+        // println!("POST_NODES {:?}", weakest_nodes);
+        // println!("POST_RANK_FILTER {:?}", weakest_candidates);
+        return weakest_candidates;
     }
 
     fn find_dowdall_weakest(&self, candidates: Vec<u16>) -> Vec<u16> {
@@ -177,10 +399,74 @@ impl RankedChoiceVoteTrie {
         let mut rcv = RankedChoiceVoteTrie {
             root: Default::default(),
             dowdall_score_map: Default::default(),
-            elimination_strategy: self.elimination_strategy.clone()
+            elimination_strategy: self.elimination_strategy.clone(),
+            unique_candidates: Default::default()
         };
         rcv.insert_votes(votes);
         return rcv.determine_winner();
+    }
+
+    fn build_ranked_pairs_map(
+        &self, node: &TrieNode, search_path: &mut Vec<u16>,
+        ranked_pairs_map: &mut HashMap<(u16, u16), u64>,
+        unique_candidates: &HashSet<u16>
+    ) {
+        let kv_pairs_vec: Vec<(Box<&VoteValues>, Box<&TrieNode>)> =
+            node.children.iter().map(|(vote_value, node)| {
+                (Box::new(vote_value), Box::new(node))
+            }).collect();
+
+        // number of votes that terminate at node
+        let mut terminating_votes: u64 = node.num_votes;
+        // println!("NODE_VOTES {:?}", node.num_votes);
+
+        for (boxed_vote_value, boxed_child) in kv_pairs_vec {
+            let vote_value = *boxed_vote_value;
+            let child = *boxed_child;
+
+            // println!("CHILD_VOTES {:?}", child.num_votes);
+            assert!(terminating_votes >= child.num_votes);
+            terminating_votes -= child.num_votes;
+
+            let candidate = match vote_value {
+                VoteValues::SpecialVote(_) => { continue }
+                VoteValues::Candidate(candidate) => { candidate }
+            };
+
+            for preferable_candidate in search_path.iter() {
+                let ranked_pair = (*preferable_candidate, *candidate);
+                let pairwise_votes =
+                    ranked_pairs_map.entry(ranked_pair).or_insert(0);
+                *pairwise_votes += child.num_votes;
+            }
+
+            search_path.push(*candidate);
+            self.build_ranked_pairs_map(
+                child, search_path, ranked_pairs_map, unique_candidates
+            );
+            search_path.pop();
+        };
+
+        if terminating_votes > 0 {
+            // println!("UNIQUE {:?}", unique_candidates);
+            // println!("TERMINATE {:?}", (&search_path, terminating_votes));
+            // candidates who weren't explicitly listed in current vote path
+            let search_path: &Vec<u16> = search_path.as_ref();
+            let mut unspecified_candidates = unique_candidates.clone();
+            for candidate in search_path {
+                unspecified_candidates.remove(candidate);
+            }
+
+            for preferable_candidate in search_path {
+                for candidate in &unspecified_candidates {
+                    let ranked_pair = (*preferable_candidate, *candidate);
+                    let pairwise_votes =
+                        ranked_pairs_map.entry(ranked_pair).or_insert(0);
+                    // println!("INSERT {:?}", (ranked_pair, terminating_votes));
+                    *pairwise_votes += terminating_votes;
+                }
+            }
+        }
     }
 
     pub fn determine_winner<'a>(&self) -> Option<u16> {
@@ -197,6 +483,7 @@ impl RankedChoiceVoteTrie {
 
         let kv_pairs_vec: Vec<(&VoteValues, &TrieNode)> =
             self.root.children.iter().collect();
+
         for (vote_value, node) in kv_pairs_vec {
             match vote_value {
                 VoteValues::SpecialVote(SpecialVotes::ABSTAIN) => {}
@@ -210,6 +497,14 @@ impl RankedChoiceVoteTrie {
                     effective_total_votes += node.num_votes;
                 }
             };
+        }
+
+        let mut ranked_pairs_map: HashMap<(u16, u16), u64> = HashMap::new();
+        if self.elimination_strategy == EliminationStrategies::RankedPairs {
+            self.build_ranked_pairs_map(
+                &self.root, &mut Vec::new(), &mut ranked_pairs_map,
+                &self.unique_candidates
+            );
         }
 
         while candidate_vote_counts.len() > 0 {
@@ -242,7 +537,14 @@ impl RankedChoiceVoteTrie {
             match self.elimination_strategy {
                 EliminationStrategies::EliminateAll => {},
                 EliminationStrategies::DowdallScoring => {
-                    weakest_candidates = self.find_dowdall_weakest(weakest_candidates);
+                    weakest_candidates = self.find_dowdall_weakest(
+                        weakest_candidates
+                    );
+                },
+                EliminationStrategies::RankedPairs => {
+                    weakest_candidates = self.find_ranked_pairs_weakest(
+                        weakest_candidates, &ranked_pairs_map
+                    );
                 }
             }
 

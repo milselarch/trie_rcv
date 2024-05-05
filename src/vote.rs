@@ -109,45 +109,62 @@ impl RankedVote {
         return Ok(votes);
     }
 
-    pub fn from_vector(raw_rankings: &Vec<i32>) -> Result<RankedVote, VoteErrors> {
+    pub fn from_candidates(
+        candidates: &Vec<u16>
+    ) -> Result<RankedVote, VoteErrors> {
+        return Self::from_vector(
+            &candidates.iter().map(|x| *x as i32).collect()
+        )
+    }
+
+    pub fn from_vector(
+        raw_ranked_vote: &Vec<i32>
+    ) -> Result<RankedVote, VoteErrors> {
         // println!("INSERT {:?}", raw_rankings);
-        let mut rankings: Vec<u16> = Vec::new();
-        let mut special_vote: Option<SpecialVotes> = None;
+        let mut candidates: Vec<u16> = Vec::new();
+        let mut special_vote_value: Option<SpecialVotes> = None;
         let mut unique_values = HashSet::new();
-        let length = raw_rankings.len();
+        let length = raw_ranked_vote.len();
         let last_index = length - 1;
 
-        for (k, raw_ranking) in raw_rankings.iter().enumerate() {
+        for (k, raw_ranked_vote_value) in raw_ranked_vote.iter().enumerate() {
             let is_last_index = k == last_index;
 
-            if unique_values.contains(raw_ranking) {
+            if unique_values.contains(raw_ranked_vote_value) {
                 return Err(VoteErrors::DuplicateVotes);
             } else {
-                unique_values.insert(*raw_ranking);
+                unique_values.insert(*raw_ranked_vote_value);
             }
 
-            if raw_ranking.is_negative() {
+            if raw_ranked_vote_value.is_negative() {
                 if !is_last_index {
                     return Err(VoteErrors::NonFinalSpecialVote);
                 }
                 assert!(is_last_index);
-                let cast_result = SpecialVotes::from_int(*raw_ranking);
+                let cast_result =
+                    SpecialVotes::from_int(*raw_ranked_vote_value);
                 match cast_result {
                     Err(cast_error) => { return Err(cast_error); },
-                    Ok(cast_value) => { special_vote = Some(cast_value) }
+                    Ok(cast_value) => {
+                        special_vote_value = Some(cast_value)
+                    }
                 }
             } else {
-                assert!(raw_ranking.is_positive());
-                let cast_result = u16::try_from(*raw_ranking);
+                assert!(raw_ranked_vote_value.is_positive());
+                let cast_result = u16::try_from(*raw_ranked_vote_value);
                 match cast_result {
-                    Err(_) => { return Err(VoteErrors::InvalidCastToSpecialVote); },
-                    Ok(choice) => { rankings.push(choice) }
+                    Ok(candidate) => { candidates.push(candidate) }
+                    Err(_) => {
+                        return Err(VoteErrors::InvalidCastToSpecialVote);
+                    },
                 }
             }
         }
 
         // println!("INSERT_END {:?}", raw_rankings);
-        return Ok(RankedVote { rankings, special_vote })
+        return Ok(RankedVote {
+            rankings: candidates, special_vote: special_vote_value
+        })
     }
 
     pub fn to_vector(&self) -> Vec<i32> {

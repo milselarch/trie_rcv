@@ -25,6 +25,24 @@ fn test_basic_scenario() {
 }
 
 #[test]
+fn test_vote_insert() {
+    let mut rcv = RankedChoiceVoteTrie::new();
+    rcv.set_elimination_strategy(EliminationStrategies::EliminateAll);
+
+    rcv.insert_vote(RankedVote::from_vector(&vec![1, 2, 3, 4]).unwrap());
+    rcv.insert_vote(RankedVote::from_vector(&vec![1, 2, 3]).unwrap());
+    rcv.insert_vote(RankedVote::from_vector(&vec![3]).unwrap());
+    rcv.insert_vote(RankedVote::from_vector(&vec![3, 2, 4]).unwrap());
+    rcv.insert_vote(RankedVote::from_vector(&vec![4, 1]).unwrap());
+    let winner = rcv.determine_winner();
+    println!("WINNER = {:?}", winner);
+    assert_eq!(
+        winner, Some(1),
+        "Vote 4 > 1 should go to 1, leading to Candidate 1 winning"
+    );
+}
+
+#[test]
 fn test_simple_majority() {
     let votes = RankedVote::from_vectors(&vec![
         vec![1, 2, 3, 4],
@@ -54,7 +72,7 @@ fn test_tie_scenario() {
 }
 
 #[test]
-fn test_zero_vote_end() {
+fn test_withold_vote_end() {
     let votes = RankedVote::from_vectors(&vec![
         vec![1, WITHOLD_VOTE_VAL],
         vec![2, 1],
@@ -72,8 +90,25 @@ fn test_zero_vote_end() {
     ]);
 }
 
+fn test_abstain_vote_end() {
+    let votes = RankedVote::from_vectors(&vec![
+        vec![1, ABSTAIN_VOTE_VAL],
+        vec![2, 1],
+        vec![3, 2],
+        vec![3]
+    ]).unwrap();
+
+    let rcv = RankedChoiceVoteTrie::new();
+    let winner = rcv.run_election(votes);
+    println!("WINNER = {:?}", winner);
+    assert_eq!(
+        winner, Some(3), concat![
+        "First vote is ignored in round 2, candidate 3 wins"
+    ]);
+}
+
 #[test]
-fn test_zero_nil_votes_only() {
+fn test_withhold_votes_only() {
     let votes = RankedVote::from_vectors(&vec![
         vec![WITHOLD_VOTE_VAL],
         vec![WITHOLD_VOTE_VAL],
@@ -85,21 +120,6 @@ fn test_zero_nil_votes_only() {
     let winner = rcv.run_election(votes);
     println!("WINNER = {:?}", winner);
     assert_eq!(winner, None);
-}
-
-#[test]
-fn test_null_vote_end() {
-    let votes = RankedVote::from_vectors(&vec![
-        vec![1, ABSTAIN_VOTE_VAL],
-        vec![2, 1],
-        vec![3, 2],
-        vec![3]
-    ]).unwrap();
-
-    let rcv = RankedChoiceVoteTrie::new();
-    let winner = rcv.run_election(votes);
-    println!("WINNER = {:?}", winner);
-    assert_eq!(winner, Some(3));
 }
 
 #[test]
@@ -133,4 +153,21 @@ fn test_all_elimination() {
     let winner = rcv.run_election(votes);
     println!("WINNER = {:?}", winner);
     assert_eq!(winner, Some(1));
+}
+
+#[test]
+fn test_ranked_pairs_elimination() {
+    let votes = RankedVote::from_vectors(&vec![
+        vec![1, 6, 15],
+        vec![1, 2, 6, 15, 5, 4, 7, 3, 11],
+        vec![6, 15, 1, 11, 10, 16, 17, 8, 2, 3, 5, 7],
+        vec![9, 8, 6, 11, 13, 3, 1],
+        vec![13, 14, 16, 6, 3, 4, 5, 2, 1, 8, 9]
+    ]).unwrap();
+
+    let mut rcv = RankedChoiceVoteTrie::new();
+    rcv.set_elimination_strategy(EliminationStrategies::RankedPairs);
+    let winner = rcv.run_election(votes);
+    println!("WINNER = {:?}", winner);
+    assert_eq!(winner, Some(6));
 }
