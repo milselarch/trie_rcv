@@ -1,8 +1,9 @@
 use std::cmp::min;
 use std::collections::{HashMap, HashSet};
 use petgraph::graph::{DiGraph, NodeIndex};
-use itertools::iproduct;
+use itertools::{iproduct, Itertools};
 use std::collections::VecDeque;
+use petgraph::Direction;
 use petgraph::prelude::EdgeRef;
 
 pub use vote::*;
@@ -76,54 +77,84 @@ pub enum EliminationStrategies {
 }
 
 fn is_graph_acyclic(graph: &DiGraph<u16, u64>) -> bool {
-    todo!()
-}
-
-fn pecking_order_in_graph(graph: &DiGraph<u16, u64>) -> bool {
     /*
-    Checks if:
-    1.  there is a set of nodes where there are no other nodes outside
-        that set that are preferred over it in a head-to-head comparison
-    2.  there is a set of nodes where there are no other nodes outside
-        that set that are preferred against it in a head-to-head comparison
-    3.  graph is weakly connected i.e. every node is able to each every other
-        node if all the edges are converted from directed to undirected
-    4.  graph is acyclic i.e. there doesn't exist any path of directed edges
-        from some edge in the graph back to itself
+    checks if there doesn't exist any path of directed edges
+    from some edge in the graph back to itself
     */
-    if !is_graph_acyclic(graph) { return false; }
-    let check_is_outgoing = |&node| {
-        graph.edges_directed(node, petgraph::Direction::Incoming).count() == 0
-    };
+    if graph.node_count() == 0 { return true }
+    let nodes: Vec<NodeIndex> = graph.node_indices().collect();
+    let mut all_explored_nodes = HashSet::<NodeIndex>::new();
 
-    let outgoing_only_nodes: Vec<NodeIndex> = graph
-        .node_indices().filter(check_is_outgoing).collect();
-    let mut explored_nodes = HashSet::<NodeIndex>::new();
-    let mut queue = VecDeque::<NodeIndex>::new();
-    queue.extend(outgoing_only_nodes);
+    fn dfs_find_cycle(
+        node: &NodeIndex, path: &mut Vec<NodeIndex>,
+        explored: &mut HashSet::<NodeIndex>, graph: &DiGraph<u16, u64>
+    ) -> bool {
+        // use DFS to see if a cycle can be created from paths starting from node
+        explored.insert(*node);
 
-    loop {
-        let node_idx_option = queue.pop_front();
-        let node_idx = match node_idx_option {
-            None => { break }
-            Some(node_idx) => { node_idx }
-        };
-
-        if explored_nodes.contains(&node_idx) { continue }
-        explored_nodes.insert(node_idx);
-
-        let outgoing_neighbors: Vec<NodeIndex> = graph
-            .edges_directed(node_idx, petgraph::Direction::Outgoing)
-            .map(|edge| edge.target())
+        // get neighbors of node where there is an
+        // outgoing edge from node to neighbor
+        let directed_neighbors: Vec<NodeIndex> = graph
+            .edges_directed(*node, petgraph::Direction::Outgoing)
+            .map(|edge| { edge.target()} )
             .collect();
 
-        for neighbor in outgoing_neighbors {
-            if explored_nodes.contains(&neighbor) { continue }
-            queue.push_back(neighbor);
+        for neighbor in directed_neighbors {
+            if path.contains(&neighbor) { return true }
+            path.push(neighbor);
+            let has_cycle = dfs_find_cycle(&neighbor, path, explored, graph);
+            path.pop();
+
+            if has_cycle { return true }
+        }
+
+        return false;
+    }
+
+    for node in nodes {
+        if all_explored_nodes.contains(&node) { continue }
+        let mut dfs_explored_nodes = HashSet::<NodeIndex>::new();
+        let has_cycle = dfs_find_cycle(
+            &node, &mut Vec::<NodeIndex>::new(), &mut dfs_explored_nodes, graph
+        );
+
+        if has_cycle { return false }
+        all_explored_nodes.extend(dfs_explored_nodes.iter().collect_vec());
+    }
+
+    return true;
+}
+
+fn is_graph_weakly_connected(graph: &DiGraph<u16, u64>) -> bool {
+    /*
+    checks if there is a path from every node to every other
+    node when all the edges are converted from directed to undirected
+    */
+    if graph.node_count() == 0 { return true }
+    let mut queue = VecDeque::<NodeIndex>::new();
+    let mut explored_nodes = HashSet::<NodeIndex>::new();
+    let nodes: Vec<NodeIndex> = graph.node_indices().collect();
+    let start_node = nodes[0];
+    queue.push_back(start_node);
+
+    // do a DFS search to see if all nodes are reachable from start_node
+    loop {
+        let node = match queue.pop_back() {
+            None => { break; }
+            Some(node) => node
+        };
+
+        if explored_nodes.contains(&node) { continue }
+        explored_nodes.insert(node);
+
+        // collects nodes that share incoming or outgoing edges
+        let neighbors: Vec<NodeIndex> = graph.neighbors(node).collect();
+        for neighbor in neighbors {
+            queue.push_back(neighbor)
         }
     }
 
-    return graph.node_count() == explored_nodes.len()
+    return explored_nodes.len() == graph.node_count()
 }
 
 impl RankedChoiceVoteTrie {
@@ -211,18 +242,10 @@ impl RankedChoiceVoteTrie {
         return transfer_changes;
     }
 
-    fn get_or_create_nodes<'a>(
-        &'a self, candidate: &u16,
-        frontier_nodes: &'a mut HashMap<u16, Vec<&'a TrieNode>>
-    ) -> &mut Vec<&TrieNode> {
-        frontier_nodes.entry(*candidate).or_insert(Vec::new())
-    }
-
     fn find_ranked_pairs_weakest(
         &self, candidates: Vec<u16>,
         ranked_pairs_map: &HashMap<(u16, u16), u64>
     ) -> Vec<u16> {
-        let mut weakest_candidates: Vec<u16> = Vec::new();
         let mut graph = DiGraph::<u16, u64>::new();
         let mut node_map = HashMap::<u16, NodeIndex>::new();
 
@@ -252,15 +275,13 @@ impl RankedChoiceVoteTrie {
             }
         };
 
-        let get_or_create_node = |candidate: u16| -> NodeIndex {
-            if let Some(&existing_index) = node_map.get(&candidate) {
-                existing_index
-            } else {
-                let index = graph.add_node(candidate);
-                node_map.insert(candidate, index);
-                index
-            }
-        };
+        fn get_or_create_node (
+            graph: &mut DiGraph<u16, u64>,
+            node_map: &mut HashMap<u16, NodeIndex>,
+            candidate: u16
+        ) -> NodeIndex {
+            *node_map.get(&candidate).unwrap_or(&graph.add_node(candidate))
+        }
 
         // construct preference strength graph between candidates
         for (candidate1, candidate2) in iproduct!(&candidates, &candidates) {
@@ -275,13 +296,30 @@ impl RankedChoiceVoteTrie {
             }
 
             assert!(preference == PairPreferences::PreferredOver);
-            let node1_idx = get_or_create_node(*candidate1);
-            let node2_idx = get_or_create_node(*candidate2);
+            let node1_idx =
+                get_or_create_node(&mut graph, &mut node_map, *candidate1);
+            let node2_idx =
+                get_or_create_node(&mut graph, &mut node_map, *candidate2);
             if !graph.contains_edge(node1_idx, node2_idx) {
                 graph.add_edge(node1_idx, node2_idx, strength);
             }
         }
 
+        // unable to establish pecking order among candidates
+        if !(is_graph_acyclic(&graph) && is_graph_weakly_connected(&graph)) {
+            return candidates.clone();
+        }
+
+        let has_no_outgoing_edges = |&node: &NodeIndex| -> bool {
+            graph.neighbors_directed(node, Direction::Outgoing).count() == 0
+        };
+        let weakest_nodes: Vec<NodeIndex> = graph
+            .node_indices()
+            .filter(has_no_outgoing_edges)
+            .collect();
+
+        let weakest_candidates = weakest_nodes
+            .iter().map(|&index| graph[index]).collect();
         return weakest_candidates;
     }
 
@@ -320,7 +358,7 @@ impl RankedChoiceVoteTrie {
         return rcv.determine_winner();
     }
 
-    pub fn build_ranked_pairs_map(
+    fn build_ranked_pairs_map(
         &self, node: &TrieNode, search_path: &mut Vec<u16>,
         ranked_pairs_map: &mut HashMap<(u16, u16), u64>
     ) {
@@ -417,10 +455,14 @@ impl RankedChoiceVoteTrie {
             match self.elimination_strategy {
                 EliminationStrategies::EliminateAll => {},
                 EliminationStrategies::DowdallScoring => {
-                    weakest_candidates = self.find_dowdall_weakest(weakest_candidates);
+                    weakest_candidates = self.find_dowdall_weakest(
+                        weakest_candidates
+                    );
                 },
                 EliminationStrategies::RankedPairs => {
-                    todo!();
+                    weakest_candidates = self.find_ranked_pairs_weakest(
+                        weakest_candidates, &ranked_pairs_map
+                    );
                 }
             }
 
