@@ -108,7 +108,7 @@ with the lowest [Dowdall score](https://rdrr.io/cran/votesys/man/dowdall_method.
 The Dowdall score for each candidate is calculated by
 the sum of the  inverse of the ranking (starting from 1) for each ranked vote. 
 If a ranked vote does not contain a candidate, then it does not count 
-towards the dowdall score)
+towards the dowdall score.
 3. `EliminationStrategies::RankedPairs`  
 Among multiple candidates with the lowest number of votes each round, attempt
 to construct  a directed acyclic graph establishing a pecking order between
