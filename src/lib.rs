@@ -457,14 +457,13 @@ impl RankedChoiceVoteTrie {
                 unspecified_candidates.remove(candidate);
             }
 
-            for preferable_candidate in search_path {
-                for candidate in &unspecified_candidates {
-                    let ranked_pair = (*preferable_candidate, *candidate);
-                    let pairwise_votes =
-                        ranked_pairs_map.entry(ranked_pair).or_insert(0);
-                    // println!("INSERT {:?}", (ranked_pair, terminating_votes));
-                    *pairwise_votes += terminating_votes;
-                }
+            let pairs = iproduct!(search_path, &unspecified_candidates);
+            for (preferable_candidate, candidate) in pairs {
+                let ranked_pair = (*preferable_candidate, *candidate);
+                let pairwise_votes =
+                    ranked_pairs_map.entry(ranked_pair).or_insert(0);
+                // println!("INSERT {:?}", (ranked_pair, terminating_votes));
+                *pairwise_votes += terminating_votes;
             }
         }
     }
