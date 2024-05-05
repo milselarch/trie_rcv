@@ -66,7 +66,7 @@ struct VoteTransferChanges<'a> {
 // strategies for how to eliminate candidates each round
 #[derive(Clone, PartialEq)]
 pub enum EliminationStrategies {
-    // eliminate all candidates with the lowest number of votes
+    // removes all candidates with the lowest number of votes each round
     EliminateAll,
     // eliminate the candidate(s) with both the lowest number of votes
     // followed by the lowest dowdall score

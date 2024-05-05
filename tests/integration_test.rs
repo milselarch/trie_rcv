@@ -72,7 +72,7 @@ fn test_tie_scenario() {
 }
 
 #[test]
-fn test_zero_vote_end() {
+fn test_withold_vote_end() {
     let votes = RankedVote::from_vectors(&vec![
         vec![1, WITHOLD_VOTE_VAL],
         vec![2, 1],
@@ -90,8 +90,25 @@ fn test_zero_vote_end() {
     ]);
 }
 
+fn test_abstain_vote_end() {
+    let votes = RankedVote::from_vectors(&vec![
+        vec![1, ABSTAIN_VOTE_VAL],
+        vec![2, 1],
+        vec![3, 2],
+        vec![3]
+    ]).unwrap();
+
+    let rcv = RankedChoiceVoteTrie::new();
+    let winner = rcv.run_election(votes);
+    println!("WINNER = {:?}", winner);
+    assert_eq!(
+        winner, Some(3), concat![
+        "First vote is ignored in round 2, candidate 3 wins"
+    ]);
+}
+
 #[test]
-fn test_zero_nil_votes_only() {
+fn test_withhold_votes_only() {
     let votes = RankedVote::from_vectors(&vec![
         vec![WITHOLD_VOTE_VAL],
         vec![WITHOLD_VOTE_VAL],
@@ -103,21 +120,6 @@ fn test_zero_nil_votes_only() {
     let winner = rcv.run_election(votes);
     println!("WINNER = {:?}", winner);
     assert_eq!(winner, None);
-}
-
-#[test]
-fn test_null_vote_end() {
-    let votes = RankedVote::from_vectors(&vec![
-        vec![1, ABSTAIN_VOTE_VAL],
-        vec![2, 1],
-        vec![3, 2],
-        vec![3]
-    ]).unwrap();
-
-    let rcv = RankedChoiceVoteTrie::new();
-    let winner = rcv.run_election(votes);
-    println!("WINNER = {:?}", winner);
-    assert_eq!(winner, Some(3));
 }
 
 #[test]
