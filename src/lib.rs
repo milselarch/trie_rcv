@@ -1,4 +1,4 @@
-use std::cmp::min;
+use std::cmp::{min, Ordering};
 use std::collections::{HashMap, HashSet};
 use petgraph::graph::{DiGraph, NodeIndex};
 use itertools::{iproduct, Itertools};
@@ -218,7 +218,7 @@ impl RankedChoiceVoteTrie {
                 return None;
             }
         }
-        return Some(current);
+        Some(current)
     }
 
     fn transfer_next_votes<'a>(&'a self, node: &'a TrieNode) -> VoteTransferChanges {
@@ -250,7 +250,7 @@ impl RankedChoiceVoteTrie {
             }
         }
 
-        return transfer_changes;
+        transfer_changes
     }
 
     fn find_ranked_pairs_weakest(
@@ -285,14 +285,20 @@ impl RankedChoiceVoteTrie {
             ));
             */
 
-            return if preferred_over_votes > preferred_against_votes {
-                let strength = preferred_over_votes - preferred_against_votes;
-                (PairPreferences::PreferredOver, strength)
-            } else if preferred_over_votes == preferred_against_votes {
-                (PairPreferences::Inconclusive, 0)
-            } else {
-                let strength = preferred_against_votes - preferred_over_votes;
-                (PairPreferences::PreferredAgainst, strength)
+            match preferred_over_votes.cmp(preferred_against_votes) {
+                Ordering::Greater => {
+                    let strength =
+                        preferred_over_votes - preferred_against_votes;
+                    (PairPreferences::PreferredOver, strength)
+                }
+                Ordering::Equal => {
+                    (PairPreferences::Inconclusive, 0)
+                }
+                Ordering::Less => {
+                    let strength =
+                        preferred_against_votes - preferred_over_votes;
+                    (PairPreferences::PreferredAgainst, strength)
+                }
             }
         };
 
@@ -312,7 +318,7 @@ impl RankedChoiceVoteTrie {
             };
 
             // println!("NODE_MAP_POST {:?}", (candidate, &node_map, &graph));
-            return node;
+            node
         }
 
         // initialize all the nodes in the graph
@@ -367,7 +373,7 @@ impl RankedChoiceVoteTrie {
             .iter().map(|&index| graph[index]).collect();
         // println!("POST_NODES {:?}", weakest_nodes);
         // println!("POST_RANK_FILTER {:?}", weakest_candidates);
-        return weakest_candidates;
+        weakest_candidates
     }
 
     fn find_dowdall_weakest(&self, candidates: Vec<u16>) -> Vec<u16> {
@@ -392,7 +398,7 @@ impl RankedChoiceVoteTrie {
             }
         }
 
-        return weakest_candidates;
+        weakest_candidates
     }
 
     pub fn run_election(&self, votes: Vec<RankedVote>) -> Option<u16> {
@@ -403,11 +409,11 @@ impl RankedChoiceVoteTrie {
             unique_candidates: Default::default()
         };
         rcv.insert_votes(votes);
-        return rcv.determine_winner();
+        rcv.determine_winner()
     }
 
     fn build_ranked_pairs_map(
-        &self, node: &TrieNode, search_path: &mut Vec<u16>,
+        node: &TrieNode, search_path: &mut Vec<u16>,
         ranked_pairs_map: &mut HashMap<(u16, u16), u64>,
         unique_candidates: &HashSet<u16>
     ) {
@@ -441,7 +447,7 @@ impl RankedChoiceVoteTrie {
             }
 
             search_path.push(*candidate);
-            self.build_ranked_pairs_map(
+            Self::build_ranked_pairs_map(
                 child, search_path, ranked_pairs_map, unique_candidates
             );
             search_path.pop();
@@ -451,7 +457,7 @@ impl RankedChoiceVoteTrie {
             // println!("UNIQUE {:?}", unique_candidates);
             // println!("TERMINATE {:?}", (&search_path, terminating_votes));
             // candidates who weren't explicitly listed in current vote path
-            let search_path: &Vec<u16> = search_path.as_ref();
+            let search_path: &Vec<u16> = search_path;
             let mut unspecified_candidates = unique_candidates.clone();
             for candidate in search_path {
                 unspecified_candidates.remove(candidate);
@@ -468,7 +474,7 @@ impl RankedChoiceVoteTrie {
         }
     }
 
-    pub fn determine_winner<'a>(&self) -> Option<u16> {
+    pub fn determine_winner(&self) -> Option<u16> {
         // println!("RUN_ELECTION_START");
         let mut candidate_vote_counts: HashMap<u16, u64> = HashMap::new();
         // trie frontier nodes are stored in boxes so that they will be
@@ -500,13 +506,13 @@ impl RankedChoiceVoteTrie {
 
         let mut ranked_pairs_map: HashMap<(u16, u16), u64> = HashMap::new();
         if self.elimination_strategy == EliminationStrategies::RankedPairs {
-            self.build_ranked_pairs_map(
+            Self::build_ranked_pairs_map(
                 &self.root, &mut Vec::new(), &mut ranked_pairs_map,
                 &self.unique_candidates
             );
         }
 
-        while candidate_vote_counts.len() > 0 {
+        while !candidate_vote_counts.is_empty() {
             // println!("COUNTS {:?}", candidate_vote_counts);
             let mut min_candidate_votes: u64 = u64::MAX;
             // impossible for any candidate to win as sum of
@@ -568,7 +574,7 @@ impl RankedChoiceVoteTrie {
             }
 
             // 0 vote transfers will be done, election is unable to progress
-            if all_vote_transfers.len() == 0 { return None; }
+            if all_vote_transfers.is_empty() { return None; }
             total_candidate_votes -= new_abstain_votes + new_withhold_votes;
             effective_total_votes -= new_abstain_votes;
 
@@ -581,13 +587,13 @@ impl RankedChoiceVoteTrie {
                 let next_candidate_votes = candidate_vote_counts
                     .entry(next_candidate).or_insert(0);
                 let next_candidate_nodes = frontier_nodes
-                    .entry(next_candidate).or_insert(Vec::new());
+                    .entry(next_candidate).or_default();
 
                 *next_candidate_votes += vote_allocation;
                 next_candidate_nodes.push(vote_transfer.next_node);
             }
         }
 
-        return None;
+        None
     }
 }
