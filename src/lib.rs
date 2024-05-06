@@ -16,26 +16,26 @@ pub enum PairPreferences {
 }
 
 #[derive(Default)]
-struct TrieNode {
+pub struct TrieNode {
     children: HashMap<VoteValues, TrieNode>,
     num_votes: u64
 }
 
 impl TrieNode {
-    fn new() -> Self {
+    pub fn new() -> Self {
         TrieNode {
             children: HashMap::new(),
             num_votes: 0,
         }
     }
 
-    fn search_or_create_child(
+    pub fn search_or_create_child(
         &mut self, vote_value: VoteValues
     ) -> &mut TrieNode {
-        self.children.entry(vote_value).or_insert(TrieNode::new())
+        self.children.entry(vote_value).or_default()
     }
 
-    fn search_child(&self, vote_value: VoteValues) -> Option<&TrieNode> {
+    pub fn search_child(&self, vote_value: VoteValues) -> Option<&TrieNode> {
         return if let Some(node_ref) = self.children.get(&vote_value) {
             Some(node_ref)
         } else {
@@ -51,6 +51,7 @@ pub struct RankedChoiceVoteTrie {
     unique_candidates: HashSet<u16>
 }
 
+#[allow(clippy::redundant_allocation)]
 struct VoteTransfer<'a> {
     next_candidate: u16,
     next_node: Box<&'a TrieNode>,
@@ -109,7 +110,7 @@ fn is_graph_acyclic(graph: &DiGraph<u16, u64>) -> bool {
             if has_cycle { return true }
         }
 
-        return false;
+        false
     }
 
     for node in nodes {
@@ -123,7 +124,7 @@ fn is_graph_acyclic(graph: &DiGraph<u16, u64>) -> bool {
         all_explored_nodes.extend(dfs_explored_nodes.iter().collect_vec());
     }
 
-    return true;
+    true
 }
 
 fn is_graph_weakly_connected(graph: &DiGraph<u16, u64>) -> bool {
@@ -142,7 +143,7 @@ fn is_graph_weakly_connected(graph: &DiGraph<u16, u64>) -> bool {
         let mut neighbors = Vec::<NodeIndex>::new();
         neighbors.extend(graph.neighbors_directed(node, Direction::Incoming));
         neighbors.extend(graph.neighbors_directed(node, Direction::Outgoing));
-        return neighbors;
+        neighbors
     };
 
     // do a DFS search to see if all nodes are reachable from start_node
@@ -162,7 +163,13 @@ fn is_graph_weakly_connected(graph: &DiGraph<u16, u64>) -> bool {
         }
     }
 
-    return explored_nodes.len() == graph.node_count()
+    explored_nodes.len() == graph.node_count()
+}
+
+impl Default for RankedChoiceVoteTrie {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl RankedChoiceVoteTrie {
@@ -185,7 +192,7 @@ impl RankedChoiceVoteTrie {
         }
     }
 
-    pub fn insert_vote<'a>(&mut self, vote: RankedVote) {
+    pub fn insert_vote(&mut self, vote: RankedVote) {
         self.root.num_votes += 1;
         let mut current = &mut self.root;
         let vote_items = vote.iter().enumerate();
@@ -209,16 +216,25 @@ impl RankedChoiceVoteTrie {
         };
     }
 
-    fn search_node(&mut self, votes: Vec<VoteValues>) -> Option<&mut TrieNode> {
-        let mut current = &mut self.root;
-        for vote_value in votes {
-            if let Some(node) = current.children.get_mut(&vote_value) {
-                current = node;
-            } else {
-                return None;
-            }
+    pub fn search_nodes(
+        &mut self, ranked_vote: RankedVote
+    ) -> Option<Vec<&TrieNode>> {
+        // return path of trie nodes corresponding to ranked vote
+        // returns None if there is no existing matching path in trie
+        let mut current = &self.root;
+        let vote_values: Vec<VoteValues> = ranked_vote.iter().collect();
+        let mut node_path = vec![current];
+
+        for vote_value in vote_values {
+            let child_node = match current.children.get(&vote_value) {
+                Some(node) => node,
+                None => return None,
+            };
+
+            current = child_node;
+            node_path.push(current);
         }
-        Some(current)
+        Some(node_path)
     }
 
     fn transfer_next_votes<'a>(&'a self, node: &'a TrieNode) -> VoteTransferChanges {
