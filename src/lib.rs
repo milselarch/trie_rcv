@@ -88,7 +88,7 @@ fn is_graph_acyclic(graph: &DiGraph<u16, u64>) -> bool {
 
     fn dfs_find_cycle(
         node: &NodeIndex, path: &mut Vec<NodeIndex>,
-        explored: &mut HashSet::<NodeIndex>, graph: &DiGraph<u16, u64>
+        explored: &mut HashSet<NodeIndex>, graph: &DiGraph<u16, u64>
     ) -> bool {
         // use DFS to see if a cycle can be created from paths starting from node
         explored.insert(*node);
