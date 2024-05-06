@@ -51,10 +51,9 @@ pub struct RankedChoiceVoteTrie {
     unique_candidates: HashSet<u16>
 }
 
-#[allow(clippy::redundant_allocation)]
 struct VoteTransfer<'a> {
     next_candidate: u16,
-    next_node: Box<&'a TrieNode>,
+    next_node: &'a TrieNode,
     num_votes: u64
 }
 
@@ -258,8 +257,7 @@ impl RankedChoiceVoteTrie {
                 },
                 VoteValues::Candidate(next_candidate) => {
                     transfer_changes.vote_transfers.push(VoteTransfer{
-                        next_candidate: *next_candidate,
-                        next_node: Box::new(next_node),
+                        next_candidate: *next_candidate, next_node,
                         num_votes: next_node.num_votes
                     });
                 }
@@ -433,19 +431,16 @@ impl RankedChoiceVoteTrie {
         ranked_pairs_map: &mut HashMap<(u16, u16), u64>,
         unique_candidates: &HashSet<u16>
     ) {
-        let kv_pairs_vec: Vec<(Box<&VoteValues>, Box<&TrieNode>)> =
+        let kv_pairs_vec: Vec<(&VoteValues, &TrieNode)> =
             node.children.iter().map(|(vote_value, node)| {
-                (Box::new(vote_value), Box::new(node))
+                (vote_value, node)
             }).collect();
 
         // number of votes that terminate at node
         let mut terminating_votes: u64 = node.num_votes;
         // println!("NODE_VOTES {:?}", node.num_votes);
 
-        for (boxed_vote_value, boxed_child) in kv_pairs_vec {
-            let vote_value = *boxed_vote_value;
-            let child = *boxed_child;
-
+        for (vote_value, child) in kv_pairs_vec {
             // println!("CHILD_VOTES {:?}", child.num_votes);
             assert!(terminating_votes >= child.num_votes);
             terminating_votes -= child.num_votes;
@@ -493,10 +488,8 @@ impl RankedChoiceVoteTrie {
     pub fn determine_winner(&self) -> Option<u16> {
         // println!("RUN_ELECTION_START");
         let mut candidate_vote_counts: HashMap<u16, u64> = HashMap::new();
-        // trie frontier nodes are stored in boxes so that they will be
-        // allocated on the heap, otherwise they might cause a stackoverflow
         let mut frontier_nodes:
-            HashMap<u16, Vec<Box<&TrieNode>>> = HashMap::new();
+            HashMap<u16, Vec<&TrieNode>> = HashMap::new();
         // total number of voters (who have no abstained from vote)
         let mut effective_total_votes: u64 = 0;
         // total number of votes that go to candidates
@@ -513,7 +506,7 @@ impl RankedChoiceVoteTrie {
                 }
                 VoteValues::Candidate(candidate) => {
                     candidate_vote_counts.insert(*candidate, node.num_votes);
-                    frontier_nodes.insert(*candidate, vec![Box::new(node)]);
+                    frontier_nodes.insert(*candidate, vec![node]);
                     total_candidate_votes += node.num_votes;
                     effective_total_votes += node.num_votes;
                 }
@@ -532,7 +525,7 @@ impl RankedChoiceVoteTrie {
             // println!("COUNTS {:?}", candidate_vote_counts);
             let mut min_candidate_votes: u64 = u64::MAX;
             // impossible for any candidate to win as sum of
-            // candidate votes is under the total number of votes casted
+            // candidate votes is under the total number of votes cast
             if total_candidate_votes <= effective_total_votes / 2 {
                 return None;
             }
@@ -578,8 +571,8 @@ impl RankedChoiceVoteTrie {
                 let candidate_nodes = frontier_nodes.get(&weakest_candidate)
                     .expect("all uneliminated candidates must have node(s)");
 
-                for box_node in candidate_nodes {
-                    let transfer_result = self.transfer_next_votes(box_node);
+                for node in candidate_nodes {
+                    let transfer_result = self.transfer_next_votes(node);
                     new_abstain_votes += transfer_result.abstain_votes;
                     new_withhold_votes += transfer_result.withhold_votes;
                     all_vote_transfers.extend(transfer_result.vote_transfers);

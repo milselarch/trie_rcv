@@ -90,6 +90,7 @@ fn test_withold_vote_end() {
     ]);
 }
 
+#[test]
 fn test_abstain_vote_end() {
     let votes = RankedVote::from_vectors(&vec![
         vec![1, ABSTAIN_VOTE_VAL],
