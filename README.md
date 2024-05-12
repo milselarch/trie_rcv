@@ -138,8 +138,8 @@ Between the candidates with the lowest *and* second-lowest number of votes each
 round, attempt to construct a directed acyclic graph to establish a pecking 
 order between candidate preferences via [ranked-pair](https://en.wikipedia.org/wiki/Ranked_pairs) 
 comparisons, and eliminate the candidate(s) that are at the bottom to the pecking order. 
-This ensures that the winning candidate is a Condorcet winner if one exists in the poll 
-results, and will revert to `EliminationStrategies::ElimnateAll` if the preference graph cannot
+This ensures that the winning candidate is a [Condorcet winner](https://en.wikipedia.org/wiki/Condorcet_winner_criterion) 
+if one exists in the poll  results, and will revert to `EliminationStrategies::ElimnateAll` if the preference graph cannot
 be constructed.
    
 ## Build instructions  
