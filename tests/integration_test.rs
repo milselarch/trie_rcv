@@ -1,3 +1,4 @@
+use itertools::all;
 use trie_rcv;
 use trie_rcv::{EliminationStrategies, RankedChoiceVoteTrie};
 use trie_rcv::vote::{SpecialVotes, RankedVote};
@@ -154,4 +155,66 @@ fn test_all_elimination() {
     let winner = rcv.run_election(votes);
     println!("WINNER = {:?}", winner);
     assert_eq!(winner, Some(1));
+}
+
+#[test]
+fn test_spoiler_vote() {
+    const T: i32 = 3;
+    const S: i32 = 2;
+    const B: i32 = 1;
+
+    let rcv_vote_type1 = vec![vec![S, B, T]];
+    let rcv_vote_type2 = vec![vec![B, S, T]];
+    let rcv_vote_type3 = vec![vec![B, T, S]];
+    let rcv_vote_type4 = vec![vec![T, B, S]];
+
+    fn repeat(num_votes: u64, vote_type: Vec<Vec<i32>>) -> Vec<Vec<i32>> {
+        return (0..num_votes)
+        .flat_map(|_| vote_type.clone())
+        .collect::<Vec<_>>();
+    }
+
+    let mut raw_votes: Vec<Vec<i32>> = vec![];
+    raw_votes.extend(repeat(35, rcv_vote_type1));
+    raw_votes.extend(repeat(10, rcv_vote_type2));
+    raw_votes.extend(repeat(10, rcv_vote_type3));
+    raw_votes.extend(repeat(45, rcv_vote_type4));
+
+    let votes = RankedVote::from_vectors(&raw_votes).unwrap();
+    let mut rcv = RankedChoiceVoteTrie::new();
+    rcv.set_elimination_strategy(EliminationStrategies::RankedPairs);
+    let winner = rcv.run_election(votes);
+    println!("WINNER = {:?}", winner);
+    assert_eq!(winner, Some(T as u16));
+}
+
+#[test]
+fn test_condorcet_vote() {
+    const T: i32 = 3;
+    const S: i32 = 2;
+    const B: i32 = 1;
+
+    let rcv_vote_type1 = vec![vec![S, B, T]];
+    let rcv_vote_type2 = vec![vec![B, S, T]];
+    let rcv_vote_type3 = vec![vec![B, T, S]];
+    let rcv_vote_type4 = vec![vec![T, B, S]];
+
+    fn repeat(num_votes: u64, vote_type: Vec<Vec<i32>>) -> Vec<Vec<i32>> {
+        return (0..num_votes)
+        .flat_map(|_| vote_type.clone())
+        .collect::<Vec<_>>();
+    }
+
+    let mut raw_votes: Vec<Vec<i32>> = vec![];
+    raw_votes.extend(repeat(35, rcv_vote_type1));
+    raw_votes.extend(repeat(10, rcv_vote_type2));
+    raw_votes.extend(repeat(10, rcv_vote_type3));
+    raw_votes.extend(repeat(45, rcv_vote_type4));
+
+    let votes = RankedVote::from_vectors(&raw_votes).unwrap();
+    let mut rcv = RankedChoiceVoteTrie::new();
+    rcv.set_elimination_strategy(EliminationStrategies::CondorcetRankedPairs);
+    let winner = rcv.run_election(votes);
+    println!("WINNER = {:?}", winner);
+    assert_eq!(winner, Some(B as u16));
 }

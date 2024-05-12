@@ -1,4 +1,4 @@
-use std::cmp::{min, Ordering};
+use std::cmp::{min, Ordering, PartialEq};
 use std::collections::{HashMap, HashSet};
 use petgraph::graph::{DiGraph, NodeIndex};
 use itertools::{iproduct, Itertools};
@@ -64,7 +64,7 @@ struct VoteTransferChanges<'a> {
 }
 
 // strategies for how to eliminate candidates each round
-#[derive(Clone, PartialEq)]
+#[derive(Copy, Clone, PartialEq)]
 pub enum EliminationStrategies {
     // removes all candidates with the lowest number of votes each round
     EliminateAll,
@@ -74,7 +74,11 @@ pub enum EliminationStrategies {
     // eliminate the candidate(s) with both the lowest number of votes
     // and who lose against other candidates with the same number of votes
     // in a head-to-head comparison
-    RankedPairs
+    RankedPairs,
+    // compare the candidate(s) that have the lowest and second-lowest number
+    // of votes each round and eliminate the candidate(s) who lose to
+    // to the other candidates in this group in a head-to-head comparison
+    CondorcetRankedPairs
 }
 
 fn is_graph_acyclic(graph: &DiGraph<u16, u64>) -> bool {
@@ -267,13 +271,60 @@ impl RankedChoiceVoteTrie {
         transfer_changes
     }
 
+    fn find_condorcet_ranked_pairs_weakest(
+        &self, candidate_vote_counts: &HashMap<u16, u64>,
+        ranked_pairs_map: &HashMap<(u16, u16), u64>,
+        lowest_vote_candidates: Vec<u16>
+    ) -> Vec<u16> {
+        println!("CC_PRE_RANK_FILTER {:?}", candidate_vote_counts);
+        println!("CC_PAIRS_MAP {:?}", ranked_pairs_map);
+        let mut vote_counts: Vec<u64> =
+            candidate_vote_counts.values().cloned().collect();
+        vote_counts.sort();
+
+        // get the second-lowest number of effective votes, or the lowest
+        // number of votes if the second-lowest number of effective votes
+        // is not available
+        let vote_threshold = match vote_counts.get(1) {
+            Some(second_lowest_votes) => { *second_lowest_votes }
+            None => {
+                match vote_counts.get(0) {
+                    Some(lowest_votes) => { *lowest_votes }
+                    None => { return vec![] }
+                }
+            }
+        };
+
+        // find candidates with less than or equal to the
+        // second-lowest number of effective votes
+        let mut weak_candidates: Vec<u16> = Vec::new();
+        for (candidate, num_votes) in candidate_vote_counts {
+            if *num_votes <= vote_threshold {
+                weak_candidates.push(*candidate);
+            }
+        }
+
+        let pairs_result = self.find_ranked_pairs_weakest(
+            weak_candidates, ranked_pairs_map
+        );
+
+        if pairs_result.1 == false {
+            return lowest_vote_candidates;
+        } else {
+            return pairs_result.0;
+        }
+    }
+
     fn find_ranked_pairs_weakest(
         &self, candidates: Vec<u16>,
         ranked_pairs_map: &HashMap<(u16, u16), u64>
-    ) -> Vec<u16> {
-        // println!("\n----------------");
-        // println!("PRE_RANK_FILTER {:?}", candidates);
-        // println!("PAIRS_MAP {:?}", ranked_pairs_map);
+    ) -> (Vec<u16>, bool) {
+        /*
+        Finds the candidates that perform the worst in pairwise
+        head-to-head comparison.
+        Returns the worst performing candidates, and whether it was possible
+        to construct a preference graph
+        */
         let mut graph = DiGraph::<u16, u64>::new();
         let mut node_map = HashMap::<u16, NodeIndex>::new();
 
@@ -372,7 +423,7 @@ impl RankedChoiceVoteTrie {
                 is_graph_weakly_connected(&graph))
             );
             */
-            return candidates.clone();
+            return (candidates.clone(), false);
         }
 
         let has_no_outgoing_edges = |&node: &NodeIndex| -> bool {
@@ -387,7 +438,7 @@ impl RankedChoiceVoteTrie {
             .iter().map(|&index| graph[index]).collect();
         // println!("POST_NODES {:?}", weakest_nodes);
         // println!("POST_RANK_FILTER {:?}", weakest_candidates);
-        weakest_candidates
+        (weakest_candidates, true)
     }
 
     fn find_dowdall_weakest(&self, candidates: Vec<u16>) -> Vec<u16> {
@@ -514,7 +565,11 @@ impl RankedChoiceVoteTrie {
         }
 
         let mut ranked_pairs_map: HashMap<(u16, u16), u64> = HashMap::new();
-        if self.elimination_strategy == EliminationStrategies::RankedPairs {
+        let strategy = self.elimination_strategy;
+        if
+            (strategy == EliminationStrategies::RankedPairs) ||
+            (strategy == EliminationStrategies::CondorcetRankedPairs)
+        {
             Self::build_ranked_pairs_map(
                 &self.root, &mut Vec::new(), &mut ranked_pairs_map,
                 &self.unique_candidates
@@ -522,7 +577,6 @@ impl RankedChoiceVoteTrie {
         }
 
         while !candidate_vote_counts.is_empty() {
-            // println!("COUNTS {:?}", candidate_vote_counts);
             let mut min_candidate_votes: u64 = u64::MAX;
             // impossible for any candidate to win as sum of
             // candidate votes is under the total number of votes cast
@@ -539,28 +593,34 @@ impl RankedChoiceVoteTrie {
             }
 
             // find candidates with the lowest number of effective votes
-            let mut weakest_candidates: Vec<u16> = Vec::new();
+            let mut lowest_vote_candidates: Vec<u16> = Vec::new();
             for (candidate, num_votes) in &candidate_vote_counts {
                 if *num_votes == min_candidate_votes {
-                    weakest_candidates.push(*candidate);
+                    lowest_vote_candidates.push(*candidate);
                 }
             }
 
             // further filter down candidates to eliminate using
             // specified elimination strategy
-            match self.elimination_strategy {
-                EliminationStrategies::EliminateAll => {},
+            let weakest_candidates = match self.elimination_strategy {
+                EliminationStrategies::EliminateAll => {
+                    lowest_vote_candidates
+                },
                 EliminationStrategies::DowdallScoring => {
-                    weakest_candidates = self.find_dowdall_weakest(
-                        weakest_candidates
-                    );
+                    self.find_dowdall_weakest(lowest_vote_candidates)
                 },
                 EliminationStrategies::RankedPairs => {
-                    weakest_candidates = self.find_ranked_pairs_weakest(
-                        weakest_candidates, &ranked_pairs_map
-                    );
+                    self.find_ranked_pairs_weakest(
+                        lowest_vote_candidates, &ranked_pairs_map
+                    ).0
+                },
+                EliminationStrategies::CondorcetRankedPairs => {
+                    self.find_condorcet_ranked_pairs_weakest(
+                        &candidate_vote_counts, &ranked_pairs_map,
+                        lowest_vote_candidates
+                    )
                 }
-            }
+            };
 
             // find all candidates, nodes, and vote counts to transfer to
             let mut all_vote_transfers: Vec<VoteTransfer> = Vec::new();
