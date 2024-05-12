@@ -97,7 +97,13 @@ fn main() {
 ### Elimination Strategies
 Technically the RCV algorithm specification doesn't state what to do in the situation that
 there are multiple candidates who all have the same, lowest number of votes in some round during
-RCV. The `elimination_strategy` setting handles how to deal with this edge case:
+RCV. 
+
+The `elimination_strategy` setting handles which candidates to eliminate each round.  
+Technically the RCV algorithm specification doesn't state what to do in the situation that
+there are multiple candidates who all have the same, lowest number of votes in some round during
+RCV - `EliminationStrategies::ElimnateAll`, `EliminationStrategies::DowdallScoring`, 
+and `EliminationStrategies::RankedPairs` offer different ways to resolve that edge case.    
 
 1. `EliminationStrategies::ElimnateAll`  
 Removes all candidates with the lowest number of votes each round.
@@ -112,10 +118,12 @@ towards the dowdall score.
 3. `EliminationStrategies::RankedPairs`  
 Among multiple candidates with the lowest number of votes each round, attempt
 to construct  a directed acyclic graph establishing a pecking order between
-these candidates via [ranked-pair](https://en.wikipedia.org/wiki/Ranked_pairs) 
+candidate preferences via [ranked-pair](https://en.wikipedia.org/wiki/Ranked_pairs) 
 comparisons, whereby candidate A is said to be better than candidate B 
-if there are more votes that rank A higher than B
-than vice versa.
+if there are more votes that rank A higher than B and vice versa, and eliminate 
+the candidate(s) that are at the bottom to the pecking order (i.e. there are no other
+candidates that it is "better" than the pecking order, and there is at least
+1 candidate that can be said to be "better" in the pecking order)
    1. Note that if a ranked vote ranks A explicitly but not B, then that is
    counted as ranking A higher than B as well
    2. In the event that a directed acyclic preference graph cannot be established
@@ -123,6 +131,16 @@ than vice versa.
    behavior will default to eliminating all candidates with the same, 
    lowest number of votes each round i.e. it will fall back to the 
    behavior of `EliminationStrategies::ElimnateAll` 
+4. `EliminationStrategies::CondorcetRankedPairs`  
+(Implementation of the majority rule according to 
+[this](https://scholar.harvard.edu/files/maskin/files/how_to_improve_ranked-choice_voting_and_capitalism_and_society_e._maskin.pdf) paper)  
+Between the candidates with the lowest *and* second-lowest number of votes each 
+round, attempt to construct a directed acyclic graph to establish a pecking 
+order between candidate preferences via [ranked-pair](https://en.wikipedia.org/wiki/Ranked_pairs) 
+comparisons, and eliminate the candidate(s) that are at the bottom to the pecking order. 
+This ensures that the winning candidate is a Condorcet winner if one exists in the poll 
+results, and will revert to `EliminationStrategies::ElimnateAll` if the preference graph cannot
+be constructed.
    
 ## Build instructions  
 Build crate using `cargo build`, run integration tests with `cargo test`
