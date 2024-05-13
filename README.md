@@ -102,10 +102,10 @@ RCV.
 The `elimination_strategy` setting handles which candidates to eliminate each round.  
 Technically the RCV algorithm specification doesn't state what to do in the situation that
 there are multiple candidates who all have the same, lowest number of votes in some round during
-RCV - `EliminationStrategies::ElimnateAll`, `EliminationStrategies::DowdallScoring`, 
+RCV - `EliminationStrategies::EliminateAll`, `EliminationStrategies::DowdallScoring`, 
 and `EliminationStrategies::RankedPairs` offer different ways to resolve that edge case.    
 
-1. `EliminationStrategies::ElimnateAll`  
+1. `EliminationStrategies::EliminateAll`  
 Removes all candidates with the lowest number of votes each round.
 2. `EliminationStrategies::DowdallScoring` (default)  
 Among multiple candidates with the lowest number of votes each round,
@@ -130,7 +130,7 @@ candidates that it is "better" than the pecking order, and there is at least
    (such as when there are cyclic preferences between candidates), then the elimination
    behavior will default to eliminating all candidates with the same, 
    lowest number of votes each round i.e. it will fall back to the 
-   behavior of `EliminationStrategies::ElimnateAll` 
+   behavior of `EliminationStrategies::EliminateAll` 
 4. `EliminationStrategies::CondorcetRankedPairs`  
 (Implementation of the majority rule according to 
 [this](https://scholar.harvard.edu/files/maskin/files/how_to_improve_ranked-choice_voting_and_capitalism_and_society_e._maskin.pdf) paper)  
@@ -139,7 +139,7 @@ round, attempt to construct a directed acyclic graph to establish a pecking
 order between candidate preferences via [ranked-pair](https://en.wikipedia.org/wiki/Ranked_pairs) 
 comparisons, and eliminate the candidate(s) that are at the bottom to the pecking order. 
 This ensures that the winning candidate is a [Condorcet winner](https://en.wikipedia.org/wiki/Condorcet_winner_criterion) 
-if one exists in the poll  results, and will revert to `EliminationStrategies::ElimnateAll` if the preference graph cannot
+if one exists in the poll  results, and will revert to `EliminationStrategies::EliminateAll` if the preference graph cannot
 be constructed.
    
 ## Build instructions  
