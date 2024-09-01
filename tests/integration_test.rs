@@ -1,4 +1,3 @@
-use itertools::all;
 use trie_rcv;
 use trie_rcv::{EliminationStrategies, RankedChoiceVoteTrie};
 use trie_rcv::vote::{SpecialVotes, RankedVote};

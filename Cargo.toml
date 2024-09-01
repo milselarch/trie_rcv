@@ -1,6 +1,6 @@
 [package]
 name = "trie_rcv"
-version = "1.2.0"
+version = "1.2.1"
 edition = "2021"
 description = "Ranked Choice Voting implementation using Tries in Rust"
 license = "Apache-2.0"
@@ -9,5 +9,5 @@ repository = "https://github.com/milselarch/trie_rcv"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-itertools = "0.12.1"
+itertools = "0.13.0"
 petgraph = "0.6.4"

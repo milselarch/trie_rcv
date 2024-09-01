@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::fmt;
 
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
 pub enum SpecialVotes {
@@ -20,6 +21,19 @@ pub enum VoteErrors {
     NonFinalSpecialVote,
     DuplicateVotes,
     VoteIsEmpty
+}
+
+impl fmt::Display for VoteErrors {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            VoteErrors::InvalidCastToCandidate => write!(f, "Invalid cast to candidate"),
+            VoteErrors::InvalidCastToSpecialVote => write!(f, "Invalid cast to special vote"),
+            VoteErrors::ReadOutOfBounds => write!(f, "Read out of bounds"),
+            VoteErrors::NonFinalSpecialVote => write!(f, "Non-final special vote"),
+            VoteErrors::DuplicateVotes => write!(f, "Duplicate votes"),
+            VoteErrors::VoteIsEmpty => write!(f, "Vote is empty"),
+        }
+    }
 }
 
 impl VoteValues {
@@ -116,7 +130,7 @@ impl RankedVote {
     pub fn from_candidates(
         candidates: &[u16]
     ) -> Result<RankedVote, VoteErrors> {
-        return Self::from_vector(
+        Self::from_vector(
             &candidates.iter().map(|x| *x as i32).collect()
         )
     }

@@ -36,7 +36,7 @@ impl TrieNode {
     }
 
     pub fn search_child(&self, vote_value: VoteValues) -> Option<&TrieNode> {
-        return if let Some(node_ref) = self.children.get(&vote_value) {
+        if let Some(node_ref) = self.children.get(&vote_value) {
             Some(node_ref)
         } else {
             None
@@ -100,7 +100,7 @@ fn is_graph_acyclic(graph: &DiGraph<u16, u64>) -> bool {
         // get neighbors of node where there is an
         // outgoing edge from node to neighbor
         let directed_neighbors: Vec<NodeIndex> = graph
-            .edges_directed(*node, petgraph::Direction::Outgoing)
+            .edges_directed(*node, Direction::Outgoing)
             .map(|edge| { edge.target()} )
             .collect();
 
@@ -309,9 +309,9 @@ impl RankedChoiceVoteTrie {
         );
 
         if pairs_result.1 == false {
-            return lowest_vote_candidates;
+            lowest_vote_candidates
         } else {
-            return pairs_result.0;
+            pairs_result.0
         }
     }
 
