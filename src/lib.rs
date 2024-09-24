@@ -29,6 +29,10 @@ impl TrieNode {
         }
     }
 
+    pub fn get_num_votes(&self) -> u64 {
+        self.num_votes
+    }
+
     pub fn search_or_create_child(
         &mut self, vote_value: VoteValues
     ) -> &mut TrieNode {
@@ -183,6 +187,10 @@ impl RankedChoiceVoteTrie {
             elimination_strategy: EliminationStrategies::DowdallScoring,
             unique_candidates: Default::default(),
         }
+    }
+
+    pub fn get_num_votes(&self) -> u64 {
+        self.root.get_num_votes()
     }
 
     pub fn set_elimination_strategy(&mut self, strategy: EliminationStrategies) {

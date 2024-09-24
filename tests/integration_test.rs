@@ -16,6 +16,7 @@ fn test_basic_scenario() {
     ]).unwrap();
 
     let rcv = RankedChoiceVoteTrie::new();
+    assert_eq!(rcv.get_num_votes(), 0);
     let winner = rcv.run_election(votes);
     println!("WINNER = {:?}", winner);
     assert_eq!(
@@ -34,6 +35,8 @@ fn test_vote_insert() {
     rcv.insert_vote(RankedVote::from_vector(&vec![3]).unwrap());
     rcv.insert_vote(RankedVote::from_vector(&vec![3, 2, 4]).unwrap());
     rcv.insert_vote(RankedVote::from_vector(&vec![4, 1]).unwrap());
+    assert_eq!(rcv.get_num_votes(), 5);
+
     let winner = rcv.determine_winner();
     println!("WINNER = {:?}", winner);
     assert_eq!(
