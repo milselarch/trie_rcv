@@ -172,10 +172,6 @@ impl RankedVote {
                     }
                 }
             } else {
-                assert!(
-                    raw_ranked_vote_value.is_positive() ||
-                    raw_ranked_vote_value.is_zero()
-                );
                 let cast_result = u32::try_from(*raw_ranked_vote_value);
                 match cast_result {
                     Ok(candidate) => { candidates.push(candidate) }
