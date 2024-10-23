@@ -50,13 +50,13 @@ impl TrieNode {
 
 pub struct RankedChoiceVoteTrie {
     root: TrieNode,
-    dowdall_score_map: HashMap<u16, f32>,
+    dowdall_score_map: HashMap<u32, f32>,
     elimination_strategy: EliminationStrategies,
-    unique_candidates: HashSet<u16>
+    unique_candidates: HashSet<u32>
 }
 
 struct VoteTransfer<'a> {
-    next_candidate: u16,
+    next_candidate: u32,
     next_node: &'a TrieNode,
     num_votes: u64
 }
@@ -85,7 +85,7 @@ pub enum EliminationStrategies {
     CondorcetRankedPairs
 }
 
-fn is_graph_acyclic(graph: &DiGraph<u16, u64>) -> bool {
+fn is_graph_acyclic(graph: &DiGraph<u32, u64>) -> bool {
     /*
     checks if there doesn't exist any path of directed edges
     from some edge in the graph back to itself
@@ -96,7 +96,7 @@ fn is_graph_acyclic(graph: &DiGraph<u16, u64>) -> bool {
 
     fn dfs_find_cycle(
         node: &NodeIndex, path: &mut Vec<NodeIndex>,
-        explored: &mut HashSet<NodeIndex>, graph: &DiGraph<u16, u64>
+        explored: &mut HashSet<NodeIndex>, graph: &DiGraph<u32, u64>
     ) -> bool {
         // use DFS to see if a cycle can be created from paths starting from node
         explored.insert(*node);
@@ -134,7 +134,7 @@ fn is_graph_acyclic(graph: &DiGraph<u16, u64>) -> bool {
     true
 }
 
-fn is_graph_weakly_connected(graph: &DiGraph<u16, u64>) -> bool {
+fn is_graph_weakly_connected(graph: &DiGraph<u32, u64>) -> bool {
     /*
     checks if there is a path from every node to every other
     node when all the edges are converted from directed to undirected
@@ -280,10 +280,10 @@ impl RankedChoiceVoteTrie {
     }
 
     fn find_condorcet_ranked_pairs_weakest(
-        &self, candidate_vote_counts: &HashMap<u16, u64>,
-        ranked_pairs_map: &HashMap<(u16, u16), u64>,
-        lowest_vote_candidates: Vec<u16>
-    ) -> Vec<u16> {
+        &self, candidate_vote_counts: &HashMap<u32, u64>,
+        ranked_pairs_map: &HashMap<(u32, u32), u64>,
+        lowest_vote_candidates: Vec<u32>
+    ) -> Vec<u32> {
         println!("CC_PRE_RANK_FILTER {:?}", candidate_vote_counts);
         println!("CC_PAIRS_MAP {:?}", ranked_pairs_map);
         let mut vote_counts: Vec<u64> =
@@ -305,7 +305,7 @@ impl RankedChoiceVoteTrie {
 
         // find candidates with less than or equal to the
         // second-lowest number of effective votes
-        let mut weak_candidates: Vec<u16> = Vec::new();
+        let mut weak_candidates: Vec<u32> = Vec::new();
         for (candidate, num_votes) in candidate_vote_counts {
             if *num_votes <= vote_threshold {
                 weak_candidates.push(*candidate);
@@ -324,17 +324,17 @@ impl RankedChoiceVoteTrie {
     }
 
     fn find_ranked_pairs_weakest(
-        &self, candidates: Vec<u16>,
-        ranked_pairs_map: &HashMap<(u16, u16), u64>
-    ) -> (Vec<u16>, bool) {
+        &self, candidates: Vec<u32>,
+        ranked_pairs_map: &HashMap<(u32, u32), u64>
+    ) -> (Vec<u32>, bool) {
         /*
         Finds the candidates that perform the worst in pairwise
         head-to-head comparison.
         Returns the worst performing candidates, and whether it was possible
         to construct a preference graph
         */
-        let mut graph = DiGraph::<u16, u64>::new();
-        let mut node_map = HashMap::<u16, NodeIndex>::new();
+        let mut graph = DiGraph::<u32, u64>::new();
+        let mut node_map = HashMap::<u32, NodeIndex>::new();
 
         /*
         Determines whether candidate1 is preferred over candidate2 overall,
@@ -342,7 +342,7 @@ impl RankedChoiceVoteTrie {
         Also returns the net number of votes along said overall preference
         */
         let get_preference = |
-            candidate1: u16, candidate2: u16
+            candidate1: u32, candidate2: u32
         | -> (PairPreferences, u64) {
             let preferred_over_votes =
                 ranked_pairs_map.get(&(candidate1, candidate2))
@@ -376,9 +376,9 @@ impl RankedChoiceVoteTrie {
         };
 
         fn get_or_create_node (
-            graph: &mut DiGraph<u16, u64>,
-            node_map: &mut HashMap<u16, NodeIndex>,
-            candidate: u16
+            graph: &mut DiGraph<u32, u64>,
+            node_map: &mut HashMap<u32, NodeIndex>,
+            candidate: u32
         ) -> NodeIndex {
             // println!("NODE_MAP_PRE {:?}", (candidate, &node_map, &graph));
             let node = match node_map.get(&candidate) {
@@ -449,13 +449,13 @@ impl RankedChoiceVoteTrie {
         (weakest_candidates, true)
     }
 
-    fn find_dowdall_weakest(&self, candidates: Vec<u16>) -> Vec<u16> {
+    fn find_dowdall_weakest(&self, candidates: Vec<u32>) -> Vec<u32> {
         /*
         returns the subset of candidates from the input candidates vector
         that score the lowest according the dowdall scoring criteria
         */
         let mut min_score = f32::MAX;
-        let mut weakest_candidates: Vec<u16> = Vec::new();
+        let mut weakest_candidates: Vec<u32> = Vec::new();
 
         for candidate in &candidates {
             let score = self.dowdall_score_map.get(candidate)
@@ -474,7 +474,7 @@ impl RankedChoiceVoteTrie {
         weakest_candidates
     }
 
-    pub fn run_election(&self, votes: Vec<RankedVote>) -> Option<u16> {
+    pub fn run_election(&self, votes: Vec<RankedVote>) -> Option<u32> {
         let mut rcv = RankedChoiceVoteTrie {
             root: Default::default(),
             dowdall_score_map: Default::default(),
@@ -486,9 +486,9 @@ impl RankedChoiceVoteTrie {
     }
 
     fn build_ranked_pairs_map(
-        node: &TrieNode, search_path: &mut Vec<u16>,
-        ranked_pairs_map: &mut HashMap<(u16, u16), u64>,
-        unique_candidates: &HashSet<u16>
+        node: &TrieNode, search_path: &mut Vec<u32>,
+        ranked_pairs_map: &mut HashMap<(u32, u32), u64>,
+        unique_candidates: &HashSet<u32>
     ) {
         let kv_pairs_vec: Vec<(&VoteValues, &TrieNode)> =
             node.children.iter().map(|(vote_value, node)| {
@@ -527,7 +527,7 @@ impl RankedChoiceVoteTrie {
             // println!("UNIQUE {:?}", unique_candidates);
             // println!("TERMINATE {:?}", (&search_path, terminating_votes));
             // candidates who weren't explicitly listed in current vote path
-            let search_path: &Vec<u16> = search_path;
+            let search_path: &Vec<u32> = search_path;
             let mut unspecified_candidates = unique_candidates.clone();
             for candidate in search_path {
                 unspecified_candidates.remove(candidate);
@@ -544,11 +544,11 @@ impl RankedChoiceVoteTrie {
         }
     }
 
-    pub fn determine_winner(&self) -> Option<u16> {
+    pub fn determine_winner(&self) -> Option<u32> {
         // println!("RUN_ELECTION_START");
-        let mut candidate_vote_counts: HashMap<u16, u64> = HashMap::new();
+        let mut candidate_vote_counts: HashMap<u32, u64> = HashMap::new();
         let mut frontier_nodes:
-            HashMap<u16, Vec<&TrieNode>> = HashMap::new();
+            HashMap<u32, Vec<&TrieNode>> = HashMap::new();
         // total number of voters (who have no abstained from vote)
         let mut effective_total_votes: u64 = 0;
         // total number of votes that go to candidates
@@ -572,7 +572,7 @@ impl RankedChoiceVoteTrie {
             };
         }
 
-        let mut ranked_pairs_map: HashMap<(u16, u16), u64> = HashMap::new();
+        let mut ranked_pairs_map: HashMap<(u32, u32), u64> = HashMap::new();
         let strategy = self.elimination_strategy;
         if
             (strategy == EliminationStrategies::RankedPairs) ||
@@ -601,7 +601,7 @@ impl RankedChoiceVoteTrie {
             }
 
             // find candidates with the lowest number of effective votes
-            let mut lowest_vote_candidates: Vec<u16> = Vec::new();
+            let mut lowest_vote_candidates: Vec<u32> = Vec::new();
             for (candidate, num_votes) in &candidate_vote_counts {
                 if *num_votes == min_candidate_votes {
                     lowest_vote_candidates.push(*candidate);

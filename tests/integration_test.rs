@@ -187,7 +187,7 @@ fn test_spoiler_vote() {
     rcv.set_elimination_strategy(EliminationStrategies::RankedPairs);
     let winner = rcv.run_election(votes);
     println!("WINNER = {:?}", winner);
-    assert_eq!(winner, Some(T as u16));
+    assert_eq!(winner, Some(T as u32));
 }
 
 #[test]
@@ -202,9 +202,9 @@ fn test_condorcet_vote() {
     let rcv_vote_type4 = vec![vec![T, B, S]];
 
     fn repeat(num_votes: u64, vote_type: Vec<Vec<i32>>) -> Vec<Vec<i32>> {
-        return (0..num_votes)
+        (0..num_votes)
         .flat_map(|_| vote_type.clone())
-        .collect::<Vec<_>>();
+        .collect::<Vec<_>>()
     }
 
     let mut raw_votes: Vec<Vec<i32>> = vec![];
@@ -218,5 +218,5 @@ fn test_condorcet_vote() {
     rcv.set_elimination_strategy(EliminationStrategies::CondorcetRankedPairs);
     let winner = rcv.run_election(votes);
     println!("WINNER = {:?}", winner);
-    assert_eq!(winner, Some(B as u16));
+    assert_eq!(winner, Some(B as u32));
 }

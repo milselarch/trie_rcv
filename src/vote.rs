@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 use std::fmt;
+use petgraph::matrix_graph::Zero;
 
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
 pub enum SpecialVotes {
@@ -9,7 +10,7 @@ pub enum SpecialVotes {
 
 #[derive(Clone, Copy, Eq, PartialEq, Hash)]
 pub enum VoteValues {
-    Candidate(u16),
+    Candidate(u32),
     SpecialVote(SpecialVotes)
 }
 
@@ -37,10 +38,12 @@ impl fmt::Display for VoteErrors {
 }
 
 impl VoteValues {
-    pub fn to_int(self) -> i32 {
+    pub fn to_int(self) -> i64 {
         match self {
-            VoteValues::Candidate(choice) => { i32::from(choice) }
-            VoteValues::SpecialVote(special_vote) => { special_vote.to_int() }
+            VoteValues::Candidate(choice) => { i64::from(choice) }
+            VoteValues::SpecialVote(special_vote) => {
+                i64::from(special_vote.to_int())
+            }
         }
     }
 
@@ -50,7 +53,7 @@ impl VoteValues {
             return Ok(VoteValues::SpecialVote(special_vote));
         }
 
-        let cast_result = u16::try_from(raw_value);
+        let cast_result = u32::try_from(raw_value);
 
         match cast_result {
             Err(_) => { Err(VoteErrors::InvalidCastToCandidate) },
@@ -77,7 +80,7 @@ impl SpecialVotes {
 }
 
 pub struct RankedVote {
-    rankings: Vec<u16>,
+    rankings: Vec<u32>,
     special_vote: Option<SpecialVotes>
 }
 
@@ -128,7 +131,7 @@ impl RankedVote {
     }
 
     pub fn from_candidates(
-        candidates: &[u16]
+        candidates: &[u32]
     ) -> Result<RankedVote, VoteErrors> {
         Self::from_vector(
             &candidates.iter().map(|x| *x as i32).collect()
@@ -140,7 +143,7 @@ impl RankedVote {
         raw_ranked_vote: &Vec<i32>
     ) -> Result<RankedVote, VoteErrors> {
         // println!("INSERT {:?}", raw_rankings);
-        let mut candidates: Vec<u16> = Vec::new();
+        let mut candidates: Vec<u32> = Vec::new();
         let mut special_vote_value: Option<SpecialVotes> = None;
         let mut unique_values = HashSet::new();
 
@@ -169,8 +172,11 @@ impl RankedVote {
                     }
                 }
             } else {
-                assert!(raw_ranked_vote_value.is_positive());
-                let cast_result = u16::try_from(*raw_ranked_vote_value);
+                assert!(
+                    raw_ranked_vote_value.is_positive() ||
+                    raw_ranked_vote_value.is_zero()
+                );
+                let cast_result = u32::try_from(*raw_ranked_vote_value);
                 match cast_result {
                     Ok(candidate) => { candidates.push(candidate) }
                     Err(_) => {
@@ -190,20 +196,20 @@ impl RankedVote {
         })
     }
 
-    pub fn to_vector(&self) -> Vec<i32> {
-        let mut all_rankings: Vec<i32> = Vec::new();
+    pub fn to_vector(&self) -> Vec<i64> {
+        let mut all_rankings: Vec<i64> = Vec::new();
         for ranking in &self.rankings {
-            all_rankings.push(i32::from(*ranking));
+            all_rankings.push(i64::from(*ranking));
         }
         if let Some(special_vote) = &self.special_vote {
-            all_rankings.push(special_vote.to_int())
+            all_rankings.push(i64::from(special_vote.to_int()))
         }
         all_rankings
     }
 }
 
 pub struct VoteStructIterator<'a> {
-    rankings_iter: std::slice::Iter<'a, u16>,
+    rankings_iter: std::slice::Iter<'a, u32>,
     special_vote: Option<&'a SpecialVotes>,
 }
 
@@ -293,7 +299,7 @@ mod tests {
         let raw_ranked_vote = vec![1, 2, 6, 3];
         assert_eq!(
             RankedVote::from_vector(&raw_ranked_vote).unwrap().to_vector(),
-            raw_ranked_vote
+            raw_ranked_vote.iter().map(|&x| x as i64).collect::<Vec<i64>>()
         )
     }
 }
